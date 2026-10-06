@@ -7,14 +7,13 @@ pkgver="6.18.2"
 pkgrel="1"
 
 _pkgdesc="Linux Xiaomi Book S 12.4"
-_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb"
-       "qcom/sc8180x-xiaomi-book-12.4-oc.dtb")
+_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb")
 
 arch=("aarch64")
 options=("!strip")
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 
-# fcfb954 is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
+# 59d85ea is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
 # backlight, power key, volume keys, higher GPU DVFS states) it keeps the user's
 # WSA881x "PA Volume" across DAPM power-up, drops the S24_LE speaker-backend
 # quirk that was costing 20-48 dB, and (now that the level is right) caps the
@@ -24,14 +23,16 @@ makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 # It now also describes the RA9530 stylus charger on i2c7 (0x3b) and drops that
 # bus to the 400 kHz the firmware declares, so a kernel built from this commit
 # produces a DTB the ra9530-dkms driver binds to without any post-install
-# device tree patching.  Both device trees the local GRUB entries boot (the
-# plain one and "oc" — the vendor GPU frequency variant, not an overclock) are
-# built from the shared .dtsi and therefore both carry it.
+# device tree patching.  The source builds a single device tree now: the "oc"
+# variant is gone because the GPU states it was about — the vendor ones this
+# machine's firmware uses, not an overclock — are the default.  The package
+# still installs it under the "-oc" name, since the local GRUB entries
+# reference that name.
 #
 # pkgrel is deliberately left at 1: bumping it would change the release string
 # from 6.18.2-1-mibook+ and invalidate the modules already built against the
 # installed kernel.
-_ref_ksource="fcfb9543eceb37f7c53d6e40570a02d725132fd4"
+_ref_ksource="59d85eaf2e6afd53fea3c48b14e0c203a6185426"
 _ref_config_base="e36ada85974d22c05d1442a4ac47f958c7fa8e15"
 
 # The branch is public at github.com/CerteKim/linux-a51 (the GPL source for the
@@ -122,10 +123,10 @@ _package() {
     done
     mkdir -p "${pkgdir}/boot/dtb/${pkgbase}" && cp -r "${modulesdir}/dtb/." "${pkgdir}/boot/dtb/${pkgbase}/"
 
-    # The stock device tree goes to every GRUB-referenced name: the default
-    # menu entry boots "-oc.dtb" and the Advanced entry the plain name.  They
-    # are the same tree — the higher GPU states of this part live in
-    # sc8180x-xiaomi-book-12.4.dtsi now, not in a separate variant.
+    # The source now builds a single device tree.  The local GRUB entries still
+    # name the historical "-oc" file (the default menu entry boots it, the
+    # Advanced one the plain name), so install the same tree under that name as
+    # well; drop this copy once those entries are updated.
     local qdir="${pkgdir}/boot/dtb/${pkgbase}/qcom"
     install -Dm644 "${qdir}/sc8180x-xiaomi-book-12.4.dtb" \
         "${qdir}/sc8180x-xiaomi-book-12.4-oc.dtb"
