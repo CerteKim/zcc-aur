@@ -119,6 +119,7 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 | `/etc/systemd/system/iio-sensor-proxy.service.d/{exec,debug}.conf` | 补丁版直接顶替发行版二进制；debug.conf 是调试残留 |
 | `/usr/local/lib/iio-sensor-proxy/`、`/usr/local/share/iio-sensor-proxy/` | 同一件事的第二份拷贝 |
 | `/etc/systemd/system/rmtfs.service` | 已折进 `rmtfs` 包 |
+| `/etc/udev/rules.d/9{0,1,2}-fastrpc*.rules` | 会盖住包里的 `/usr/lib/udev/rules.d/` 同名文件（内容相同，留着容易搞不清哪份生效） |
 | `/etc/initcpio/install/xiaomi-book124-firmware` | 已由 firmware 包提供 |
 | `/etc/modprobe.d/vdec-probe.conf` | VPU 探针调试留的 `blacklist qcom-iris` |
 | `/etc/mkinitcpio.d/linux-surface.preset.{bak,pacsave}` | 旧内核包的残留 |
@@ -138,6 +139,7 @@ sudo pacman -U --overwrite '/usr/bin/hexagonrpcd' \
                --overwrite '/usr/lib/systemd/system/hexagonrpcd-*' \
                --overwrite '/usr/lib/udev/rules.d/9?-fastrpc*.rules' \
                --overwrite '/etc/libinput/local-overrides.quirks' \
+               --overwrite '/usr/lib/firmware/qcom/*' \
                --overwrite '/usr/lib/initcpio/install/xiaomi-book124-firmware' \
                --overwrite '/usr/lib/systemd/system/rmtfs.service' \
                --overwrite '/usr/lib/iio-sensor-proxy' \

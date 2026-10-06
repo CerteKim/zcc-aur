@@ -83,6 +83,14 @@ remove_tree /usr/local/lib/iio-sensor-proxy \
     "打补丁的 proxy 现在装在 /usr/lib/iio-sensor-proxy"
 remove_tree /usr/local/share/iio-sensor-proxy \
     "补丁随 iio-sensor-proxy-ssc 装到 /usr/share/doc/"
+# udev 会优先用 /etc/udev/rules.d 里那份，手抄的三条会盖住包安装到
+# /usr/lib/udev/rules.d 的同名规则（内容相同，但两份并存迟早不一致）。
+remove_file /etc/udev/rules.d/90-fastrpc.rules \
+    "已由 xiaomi-book-12.4-sensors 安装到 /usr/lib/udev/rules.d/"
+remove_file /etc/udev/rules.d/91-fastrpc-sensors.rules \
+    "同上（iio-sensor-proxy 的传感器类型）"
+remove_file /etc/udev/rules.d/92-fastrpc-accel-matrix.rules \
+    "同上（加速度计安装矩阵）"
 
 echo
 echo "==> 2/4 调试残留"
