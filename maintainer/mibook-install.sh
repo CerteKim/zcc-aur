@@ -157,6 +157,12 @@ if [[ $MODE == install ]]; then
   genfstab -U /mnt >> /mnt/etc/fstab
   arch-chroot /mnt bash -c 'passwd root; mkinitcpio -P'
 
+  # 3b) 启用本机需要的服务 —— 别省这一步：高通用户态服务不 enable 的话，
+  #     调制解调器会因为 rmtfs 不应答而 crash，ath10k 也会因为它的 QMI 服务
+  #     查找没人应答而看不到 wlan0（在 live 系统上这两条都踩过）。
+  arch-chroot /mnt systemctl enable pd-mapper rmtfs tqftpserv \
+      hexagonrpcd-sdsp.path iio-sensor-proxy iwd systemd-networkd
+
   # 4) 最后修启动链（这一步会写 GRUB 核与 grub.cfg）
   mibook-install.sh --repair-esp --root-part /dev/nvme0n1pX --yes
 
