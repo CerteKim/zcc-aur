@@ -23,8 +23,8 @@
 
 pkgname=xiaomi-book-12.4-firmware
 pkgver=1
-pkgrel=2
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): vendor firmware for ADSP/CDSP/SLPI/MPSS/WLAN/venus"
+pkgrel=3
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): vendor firmware for ADSP/CDSP/SLPI/MPSS/WLAN/venus/Adreno680"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom: proprietary vendor firmware')

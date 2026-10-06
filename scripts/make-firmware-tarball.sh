@@ -10,6 +10,8 @@
 #     75 MB 的 qcmpss8180.mbn（全功能 modem）与 11 MB 的 modem_pr/ mcfg 树
 #     都不会被加载，不必打进包里；
 #   * venus（VPU）与 wlanmdsp 分别被视频解码与 WiFi 用到；
+#   * Adreno 680 的 a680_sqe.fw / a680_gmu.bin 不在 ALARM 的 linux-firmware-qcom 里，
+#     不带上就是 "failed to load a680_sqe.fw"（GPU 不工作，显示照常）；
 #   * *.jsn 是加载器元数据，很小，一起带上。
 #
 # 用法:
@@ -45,6 +47,13 @@ FILES=(
     # --- venus 另一份（本仓库的另一处路径，见 firmware/qcom/sc8180x/README.md）---
     qcom/sc8180x/venus.mbn
     qcom/sc8180x/venus-noreloc.mbn
+    # --- Adreno 680（GPU）---
+    # 这两个 ALARM 的 linux-firmware-qcom **不提供**（它有 a630/a640/a650/a660，
+    # 没有 a680），本机上一直是 bring-up 时手工放的无主文件。少了它们内核会报
+    #   msm ... adreno_request_fw: failed to load a680_sqe.fw
+    # 显示仍能起来（面板走 DPU，不经过 GPU），但没有 GPU 加速。
+    qcom/a680_sqe.fw
+    qcom/a680_gmu.bin
 )
 
 STAGE=$(mktemp -d)
