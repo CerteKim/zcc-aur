@@ -1,0 +1,6 @@
+# Configure the WCN3998 whenever the controller is (re-)registered.
+#
+# The address is not stored on the chip and the kernel only keeps re-programming
+# it for as long as the hci device exists, so a re-registration (driver rebind,
+# hci_uart/qca module reload) needs bluetooth-bdaddr.service to run again.
+SUBSYSTEM=="bluetooth", ACTION=="add", ENV{DEVTYPE}=="host", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bluetooth-bdaddr.service"

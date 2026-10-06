@@ -1,0 +1,13 @@
+# makepkg 产物
+packages/*/pkg/
+packages/*/src/
+packages/*/*.pkg.tar.*
+packages/*/*.pkg.tar.*.sig
+
+# 本地仓库目录（db 与二进制包，通过 GitHub Release 分发）
+repo/
+
+# 编辑器/系统杂物
+*~
+*.swp
+.DS_Store

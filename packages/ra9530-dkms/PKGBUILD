@@ -1,0 +1,38 @@
+# Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+#
+# Renesas RA9530 stylus charger driver for the Xiaomi Book S 12.4.
+#
+# The charger (ACPI Device (SXB), _HID "TXRA9530") sits on &i2c7 at 0x3b and is
+# controlled purely over I2C; nothing in the platform enables it.  The source is
+# the driver repository, which also documents the two things that are easy to get
+# wrong (the TX command register is 0x0076, and the reverse-mode FOD threshold
+# must be programmed before transmitting).
+#
+# This is a DKMS package: it only installs the sources into /usr/src and lets
+# DKMS build for whatever kernel is installed, so it works with linux-mibook and
+# with any other kernel that provides the device tree node.
+
+pkgname=ra9530-dkms
+pkgver=1.0
+pkgrel=1
+pkgdesc="Renesas RA9530 wireless power transmitter — Xiaomi Book S 12.4 stylus charger (DKMS)"
+arch=('any')
+url="https://github.com/CerteKim/ra9530-mainline"
+license=('GPL-2.0-or-later')
+depends=('dkms')
+install=$pkgname.install
+source=("$pkgname-$pkgver.tar.gz::https://github.com/CerteKim/ra9530-mainline/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('0431fbfc27ac817f18186f84b92c0e1781e5c34c306e6ac91b8a2e9996b22033')
+
+package() {
+    # DKMS looks the sources up as /usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}
+    # using dkms.conf, i.e. /usr/src/ra9530-1.0 — keep the two in step.
+    local src="$srcdir/ra9530-mainline-$pkgver"
+    local dst="$pkgdir/usr/src/ra9530-$pkgver"
+
+    install -d "$dst"
+    cp -r "$src/dkms.conf" "$src/COPYING" "$src/driver" "$dst/"
+
+    # handy for adding the device tree node to an already installed DTB
+    install -Dm755 "$src/driver/install-dt.sh" "$pkgdir/usr/bin/ra9530-install-dt"
+}

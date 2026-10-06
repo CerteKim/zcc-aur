@@ -1,0 +1,229 @@
+# Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
+#
+# Based on Arch Linux and Arch Linux for ARM PKGBUILDs
+
+pkgbase="linux-mibook"
+pkgver="6.18.2"
+pkgrel="1"
+
+_pkgdesc="Linux Xiaomi Book S 12.4"
+_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb")
+
+arch=("aarch64")
+options=("!strip")
+makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
+
+# 430e0db is the tip of xiaomi-mainline-panel2 in the local mirror: on top of
+# 5788790 (LPG-PWM backlight, power key, volume keys, higher GPU DVFS states)
+# it keeps the user's WSA881x "PA Volume" across DAPM power-up, drops the
+# S24_LE speaker-backend quirk that was costing 20-48 dB, and (now that the
+# level is right) caps the WCD934x RX digital volumes at 0 dB, and narrows the
+# playback front ends to S16_LE (an S24_LE front end is 20-48 dB down).
+#
+# pkgrel is deliberately left at 1: bumping it would change the release string
+# from 6.18.2-1-mibook+ and invalidate the modules already built against the
+# installed kernel.
+_ref_ksource="430e0dbdb5086be878e2ed4eddf45a1fe46bbc1b"
+_ref_config_base="e36ada85974d22c05d1442a4ac47f958c7fa8e15"
+
+# The branch with the mainline panel driver is not pushed to GitHub yet, so the
+# source is the local mirror this repository already uses as its origin.  Once
+# the branch is on GitHub, replace the source below with
+#   "kernel::git+https://github.com/CerteKim/linux-a51.git#commit=${_ref_ksource}"
+source=(
+    "kernel::git+file:///home/certe/aarch64-packages/linux-surface/kernel#commit=${_ref_ksource}"
+    "base.config"
+    "linux-mibook.preset"
+    "xiaomi-only.config"
+)
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+)
+
+prepare() {
+    cd "${srcdir}/kernel"
+
+    msg2 "Setting version..."
+
+    echo "" > ".scmversion"                         # ignore uncommitted changes
+    # ./scripts/setlocalversion --save-scmversion   # alternative: include git tag / dirty flag
+    echo "-${pkgrel}" > "localversion.10-pkgrel"
+    echo "${pkgbase#linux}" > "localversion.20-pkgname"
+
+    msg2 "Configuring..."
+    ./scripts/kconfig/merge_config.sh -m "${srcdir}/base.config" "${srcdir}/xiaomi-only.config"
+    make olddefconfig
+}
+
+build() {
+    cd "${srcdir}/kernel"
+
+    # get kernel version
+    msg2 "Preparing kernel build..."
+
+    make prepare
+    make -s kernelrelease > version
+
+    # build kernel
+    msg2 "Building ${pkgbase} version $(<version)..."
+
+    unset LDFLAGS
+    unset CFLAGS
+
+    # make -j4 all modules dtbs
+    make -j4 all modules "${_dtbs[@]}"
+}
+
+_package() {
+    pkgdesc="${_pkgdesc} kernel and modules"
+    depends=("coreutils" "linux-firmware" "kmod" "mkinitcpio>=0.7")
+    optdepends=("crda: to set the correct wireless channels of your country")
+    install="${pkgbase}.install"
+
+    cd "${srcdir}/kernel"
+
+    local kernver="$(<version)"
+    local modulesdir="${pkgdir}/usr/lib/modules/${kernver}"
+    local image_name="$(make -s image_name)"
+
+    msg2 "Installing boot image..."
+
+    # systemd expects to find the kernel here to allow hibernation
+    # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
+    install -Dm644 "$(make -s image_name)" "${modulesdir}/vmlinuz"
+
+    # Used by mkinitcpio to name the kernel
+    echo "${pkgbase}" | install -Dm644 /dev/stdin "${modulesdir}/pkgbase"
+
+    msg2 "Installing modules..."
+    make INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
+
+    # remove build link
+    rm "${modulesdir}"/build
+
+    msg2 "Installing dtbs..."
+    # make INSTALL_DTBS_PATH="${modulesdir}/dtb" dtbs_install
+    # mkdir -p "${pkgdir}/boot/dtb" && cp -r "${modulesdir}/dtb" "${pkgdir}/boot/dtb/${pkgbase}"
+
+    local dtb
+    for dtb in "${_dtbs[@]}"; do
+        install -Dm644 "arch/arm64/boot/dts/${dtb}" "${modulesdir}/dtb/${dtb}"
+    done
+    mkdir -p "${pkgdir}/boot/dtb/${pkgbase}" && cp -r "${modulesdir}/dtb/." "${pkgdir}/boot/dtb/${pkgbase}/"
+
+    # The stock device tree goes to every GRUB-referenced name: the default
+    # menu entry boots "-oc.dtb" and the Advanced entry the plain name.  They
+    # are the same tree — the higher GPU states of this part live in
+    # sc8180x-xiaomi-book-12.4.dtsi now, not in a separate variant.
+    local qdir="${pkgdir}/boot/dtb/${pkgbase}/qcom"
+    install -Dm644 "${qdir}/sc8180x-xiaomi-book-12.4.dtb" \
+        "${qdir}/sc8180x-xiaomi-book-12.4-oc.dtb"
+
+    # Probe variant for the video work: same tree, VPU node enabled.  Nothing
+    # references it until tools/probe-vdec-run.sh installs it.
+    install -Dm644 "${qdir}/sc8180x-xiaomi-book-12.4.dtb" \
+        "${qdir}/sc8180x-xiaomi-book-12.4-vdec-probe.dtb"
+    fdtput -ts "${qdir}/sc8180x-xiaomi-book-12.4-vdec-probe.dtb" \
+        /soc@0/video-codec@aa00000 status okay
+
+    msg2 "Installing mkinitcpio preset..."
+
+    # sed expression for following substitutions
+    local _subst="
+        s|%PKGBASE%|${pkgbase}|g
+        s|%KERNVER%|${kernver}|g
+    "
+
+    # install mkinitcpio preset file
+    sed "${_subst}" "${srcdir}/${pkgbase}.preset" |
+        install -Dm644 /dev/stdin "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
+}
+
+_package-headers() {
+    pkgdesc="${_pkgdesc} kernel header files and scripts for building external modules"
+
+    cd "${srcdir}/kernel"
+
+    local builddir="${pkgdir}/usr/lib/modules/$(<version)/build"
+
+    msg2 "Installing build files..."
+    install -Dt "${builddir}" -m644 ".config" "Makefile" "Module.symvers" "System.map" \
+            "localversion.10-pkgrel" "localversion.20-pkgname" "version" "vmlinux"
+    install -Dt "${builddir}/kernel" -m644 "kernel/Makefile"
+    install -Dt "${builddir}/arch/arm64" -m644 "arch/arm64/Makefile"
+    cp -t "${builddir}" -a "scripts"
+
+    # add xfs and shmem for aufs building
+    mkdir -p "${builddir}"/{fs/xfs,mm}
+
+    msg2 "Installing headers..."
+    cp -t "${builddir}" -a "include"
+    cp -t "${builddir}/arch/arm64" -a "arch/arm64/include"
+    install -Dt "${builddir}/arch/arm64/kernel" -m644 "arch/arm64/kernel/asm-offsets.s"
+    mkdir -p "${builddir}/arch/arm"
+    cp -t "${builddir}/arch/arm" -a "arch/arm/include"
+
+    install -Dt "${builddir}/drivers/md" -m644 "drivers/md/"*.h
+    install -Dt "${builddir}/net/mac80211" -m644 "net/mac80211/"*.h
+
+    # https://bugs.archlinux.org/task/13146
+    install -Dt "${builddir}/drivers/media/i2c" -m644 "drivers/media/i2c/msp3400-driver.h"
+
+    # https://bugs.archlinux.org/task/20402
+    install -Dt "${builddir}/drivers/media/usb/dvb-usb" -m644 "drivers/media/usb/dvb-usb/"*.h
+    install -Dt "${builddir}/drivers/media/dvb-frontends" -m644 "drivers/media/dvb-frontends/"*.h
+    install -Dt "${builddir}/drivers/media/tuners" -m644 "drivers/media/tuners/"*.h
+
+    # https://bugs.archlinux.org/task/71392
+    install -Dt "${builddir}/drivers/iio/common/hid-sensors" -m644 "drivers/iio/common/hid-sensors/"*.h
+
+    msg2 "Installing KConfig files..."
+    find . -name 'Kconfig*' -exec install -Dm644 {} "${builddir}/{}" \;
+
+    msg2 "Removing unneeded architectures..."
+    local arch
+    for arch in "${builddir}"/arch/*/; do
+      [[ ${arch} = */arm64/ ]] && continue
+      echo "Removing $(basename "${arch}")"
+      rm -r "${arch}"
+    done
+
+    msg2 "Removing documentation..."
+    rm -r "${builddir}/Documentation"
+
+    msg2 "Removing broken symlinks..."
+    find -L "${builddir}" -type l -printf 'Removing %P\n' -delete
+
+    msg2 "Removing loose objects..."
+    find "${builddir}" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+    msg2 "Stripping build tools..."
+    local file
+    while read -rd '' file; do
+        case "$(file -bi "${file}")" in
+            application/x-sharedlib\;*)         # Libraries (.so)
+                strip -v ${STRIP_SHARED} "${file}" ;;
+            application/x-archive\;*)           # Libraries (.a)
+                strip -v ${STRIP_STATIC} "${file}" ;;
+            application/x-executable\;*)        # Binaries
+                strip -v ${STRIP_BINARIES} "${file}" ;;
+            application/x-pie-executable\;*)    # Relocatable binaries
+                strip -v ${STRIP_SHARED} "$file" ;;
+        esac
+    done < <(find "${builddir}" -type f -perm -u+x ! -name vmlinux -print0)
+
+    echo "Adding symlink..."
+    mkdir -p "${pkgdir}/usr/src"
+    ln -sr "${builddir}" "${pkgdir}/usr/src/${pkgbase}"
+}
+
+# dynamically define package functions
+pkgname=("${pkgbase}" "${pkgbase}-headers")
+for _p in "${pkgname[@]}"; do
+    eval "package_${_p}() {
+        $(declare -f "_package${_p#${pkgbase}}")
+        _package${_p#${pkgbase}}
+    }"
+done

@@ -1,0 +1,40 @@
+# libinput local device quirks - install to /etc/libinput/local-overrides.quirks
+#
+# Xiaomi Book 12.4 (sc8180x): the detachable cover is a single USB composite
+# device that provides BOTH the keyboard and the touchpad (SINO WEALTH
+# 2717:5032).  Disable-while-typing (DWT) is implemented in libinput, and
+# libinput only pairs a touchpad with a keyboard if that keyboard is tagged
+# "internal" - see tp_want_dwt() in evdev-mt-touchpad.c:
+#
+#   if (touchpad->tags & EVDEV_TAG_EXTERNAL_TOUCHPAD)
+#           return vendor_tp == vendor_kbd && product_tp == product_kbd;
+#   if (keyboard->tags & EVDEV_TAG_INTERNAL_KEYBOARD)
+#           return true;
+#   return false;
+#
+# On this machine the cover touchpad is tagged internal (udev reports
+# ID_INPUT_TOUCHPAD_INTEGRATION=internal), but the cover keyboard is a plain
+# USB keyboard and therefore has no internal tag, so DWT never activates and
+# the "Disable touchpad while typing" switch in GNOME has no effect.
+#
+# The fix is to tag the cover keyboard as internal, exactly like the upstream
+# quirks do for the Lenovo detachable covers
+# (/usr/share/libinput/50-system-lenovo.quirks), one of which is also a
+# SINO WEALTH USB composite device (258A:1015).
+#
+# Match* lines are ANDed.  MatchBus/MatchVendor/MatchProduct come from the
+# kernel PRODUCT=3/2717/5032 uevent, so they work even though udev
+# mislabels this device as ID_BUS=platform (the xhci controller is a
+# platform device on this SoC).
+#
+# Optional, if you want it to apply only on this board, add:
+#   MatchDeviceTree=xiaomi,book-12.4
+# (libinput only compares the first entry of /sys/firmware/devicetree/base/compatible,
+#  and some of the local DTB variants use "xiaomi,book-12.4-sndcard" instead.)
+
+[Xiaomi Book 12.4 Cover Keyboard (2717:5032)]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x2717
+MatchProduct=0x5032
+AttrKeyboardIntegration=internal

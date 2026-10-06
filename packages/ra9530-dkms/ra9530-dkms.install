@@ -1,0 +1,35 @@
+post_install() {
+    echo "==> 为当前内核构建并安装 RA9530 模块"
+    if dkms install -m ra9530 -v 1.0 --force; then
+        echo "    完成。检查：dmesg | grep -i ra9530"
+    else
+        echo "!! DKMS 构建失败。最常见的原因是缺少当前内核的构建目录："
+        echo "     /lib/modules/$(uname -r)/build"
+        echo "   装好对应内核（例如 linux-mibook）后手动重试："
+        echo "     sudo dkms install -m ra9530 -v 1.0 --force"
+    fi
+
+    echo
+    echo "==> 驱动需要设备树里有 charger@3b 节点，先确认："
+    if [ -d /proc/device-tree/soc@0/geniqup@8c0000/i2c@89c000/charger@3b ]; then
+        echo "    ✓ 已存在"
+    else
+        echo "    ✗ 不存在 —— 执行（会自动备份 DTB，然后在 /boot 里加节点）："
+        echo "        sudo ra9530-install-dt"
+        echo "        sudo reboot"
+    fi
+
+    echo
+    echo "==> 充电策略（可选，需要笔已配对）"
+    echo "    驱动在 /sys/bus/i2c/devices/1-003b/ 下提供 enabled 开关；"
+    echo "    电量读数的用户态工具见 github.com/CerteKim/ra9530-mainline 的 tools/。"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    echo "==> 移除 DKMS 模块"
+    dkms remove -m ra9530 -v 1.0 --all || true
+}

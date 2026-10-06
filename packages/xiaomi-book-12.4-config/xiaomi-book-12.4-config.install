@@ -1,0 +1,17 @@
+post_install() {
+    echo "==> 让 systemd 与 udev 看到新单元/规则"
+    systemctl daemon-reload || true
+    udevadm control --reload 2>/dev/null || true
+
+    echo
+    echo "==> WCN3998 蓝牙地址（默认 02:00:00:12:34:56，可改 /etc/conf.d/bluetooth-bdaddr）"
+    echo "    启用： sudo systemctl enable --now bluetooth-bdaddr.service"
+
+    echo
+    echo "==> 备选面板设备树在 /usr/share/xiaomi-book-12.4-config/panel-dtb/"
+    echo "    需要时自行拷到 /boot/dtb/... 并在引导项里指定。"
+}
+
+post_upgrade() {
+    post_install
+}
