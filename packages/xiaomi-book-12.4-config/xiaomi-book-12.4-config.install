@@ -7,6 +7,14 @@ post_install() {
     echo "==> WCN3998 蓝牙地址（默认 02:00:00:12:34:56，可改 /etc/conf.d/bluetooth-bdaddr）"
     echo "    启用： sudo systemctl enable --now bluetooth-bdaddr.service"
 
+    echo
+    echo "==> GRUB 设备树菜单项已安装（/etc/grub.d/09_xiaomi_book_dtb）"
+    echo "    ALARM 的 grub 不会生成 devicetree 行，本机固件又不提供 DTB，"
+    echo "    所以必须让引导配置带上它。生效方式："
+    echo "        sudo grub-mkconfig -o /boot/grub/grub.cfg"
+    echo "    建议同时停用会自动生成【无 DTB】菜单项的 10_linux："
+    echo "        sudo chmod -x /etc/grub.d/10_linux"
+
 }
 
 post_upgrade() {

@@ -3,29 +3,31 @@
 # Machine-specific configuration for the Xiaomi Book S 12.4 (sc8180x / TIMI):
 #   * ALSA UCM profile for the WCD9340 + WSA881x speaker setup
 #   * WCN3998 Bluetooth address workaround (unit + udev rule + conf)
+#   * a GRUB snippet that passes a device tree (see the file's own comment: the
+#     Arch Linux ARM grub has no device tree support at all, and this machine's
+#     ACPI-only firmware provides none, so without it the kernel does not boot)
 #
-# It used to carry prebuilt panel device trees as well.  Those were snapshots
-# from the bring-up (before the power key, before the GPU OV states) and are
-# superseded: the panel link mode they encoded is what the kernel source builds
-# anyway, and the power key is described in the DTS.  They stay in the working
-# tree because tools/set-panel-link-mode.sh reads them from there, but they are
-# not shippable artifacts.
+# It used to carry prebuilt panel device trees; those were bring-up snapshots and
+# are superseded by the kernel source.  See the config package's history.
 #
 # Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook"
 # and the stylus charger driver in "ra9530-dkms".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=2
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile and Bluetooth address fix"
+pkgrel=3
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
 depends=('alsa-ucm-conf')
-optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig')
-backup=('etc/conf.d/bluetooth-bdaddr')
+optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig'
+            'grub: the /etc/grub.d snippet only matters with GRUB')
+backup=('etc/conf.d/bluetooth-bdaddr'
+        'etc/grub.d/09_xiaomi_book_dtb')
 install=$pkgname.install
 source=(
+    '09_xiaomi_book_dtb'
     '60-bluetooth-bdaddr.rules'
     'bluetooth-bdaddr.conf'
     'bluetooth-bdaddr.service'
@@ -34,6 +36,7 @@ source=(
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
 )
 sha256sums=(
+    '15d8611418eed158107da8bd639c8b2719d776704655659feb22f1c311b62cae'
     '3856760ba63f0606ccb11f58e19118ac699514bd78ed6fca18e7f848206f104f'
     '51f3ed8a757e5653c186dc26c44b0a96cc327918561f3e51db87af98d074ac7d'
     'd1c942bb46110fb92a13b90aa067d0162c869328e97abdcfb6f42dad73ae0349'
@@ -54,4 +57,7 @@ package() {
     install -Dm644 bluetooth-bdaddr.conf    "$pkgdir/etc/conf.d/bluetooth-bdaddr"
     install -Dm644 bluetooth-bdaddr.service "$pkgdir/usr/lib/systemd/system/bluetooth-bdaddr.service"
     install -Dm644 60-bluetooth-bdaddr.rules "$pkgdir/usr/lib/udev/rules.d/60-bluetooth-bdaddr.rules"
+
+    # GRUB: must stay executable, grub-mkconfig runs the scripts in /etc/grub.d
+    install -Dm755 09_xiaomi_book_dtb "$pkgdir/etc/grub.d/09_xiaomi_book_dtb"
 }

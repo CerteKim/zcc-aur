@@ -1,0 +1,65 @@
+#!/bin/sh
+# Emit the Xiaomi Book S 12.4 menu entries, with a device tree.
+#
+# Why this exists: the Arch Linux ARM grub package has no device tree support.
+# Nothing under /etc/grub.d or /usr/share/grub ever writes a "devicetree" line
+# (10_linux and grub-mkconfig_lib contain no reference to dtb at all), so a
+# configuration produced by grub-mkconfig boots the kernel without one.  This
+# machine's UEFI is the Windows firmware: it is ACPI-based and hands over no
+# usable device tree, so without the line below the kernel never comes up.
+#
+# The script is named 09_ so it runs before 10_linux: its entries come first in
+# the menu and are therefore the default (GRUB_DEFAULT=0).  The entries that
+# 10_linux appends are the device-tree-less ones - either disable them with
+#
+#     chmod -x /etc/grub.d/10_linux
+#
+# or simply never select them.
+#
+# /vmlinuz-linux-mibook and /initramfs-linux-mibook.img are the stable names the
+# kernel package installs, so these entries survive kernel upgrades.  Their
+# content is only wrong if the device tree path or the kernel options change.
+
+set -e
+
+DTB=/dtb/linux-mibook/qcom/sc8180x-xiaomi-book-12.4.dtb
+VMLINUZ=/vmlinuz-linux-mibook
+INITRAMFS=/initramfs-linux-mibook.img
+INITRAMFS_FALLBACK=/initramfs-linux-mibook-fallback.img
+
+# Hardware options this port needs.  clk_ignore_unused/pd_ignore_unused keep
+# the unused clocks and power domains on, arm64.nopauth skips the UEFI memory
+# attribute setup that this firmware gets wrong, iommu.passthrough=0 keeps the
+# SMMU in translated mode, and efi=noruntime avoids the broken runtime services.
+EXTRA="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 efi=noruntime"
+
+# The root filesystem is a btrfs subvolume on a partition that /etc/fstab names
+# by device, so ask the running system for the UUID instead of hardcoding it.
+root_uuid=""
+root_src=$(findmnt -no SOURCE / 2>/dev/null || true)
+if [ -n "$root_src" ]; then
+    root_uuid=$(blkid -s UUID -o value "$root_src" 2>/dev/null || true)
+fi
+[ -n "$root_uuid" ] || root_uuid=a0362289-fb84-42e0-9dc1-d2f5dd6e87fb
+
+# /etc/default/grub is a shell fragment holding the distribution options.
+distro_opts=""
+if [ -r /etc/default/grub ]; then
+    . /etc/default/grub
+    distro_opts="${GRUB_CMDLINE_LINUX_DEFAULT:-} ${GRUB_CMDLINE_LINUX:-}"
+fi
+
+CMDLINE="root=UUID=$root_uuid rw $EXTRA $distro_opts"
+
+cat <<EOF
+menuentry 'Arch Linux (Xiaomi Book S 12.4)' --class arch --class gnu-linux --class os {
+	linux	$VMLINUZ $CMDLINE
+	devicetree $DTB
+	initrd	$INITRAMFS
+}
+menuentry 'Arch Linux (Xiaomi Book S 12.4, fallback initramfs)' --class arch --class gnu-linux --class os {
+	linux	$VMLINUZ $CMDLINE
+	devicetree $DTB
+	initrd	$INITRAMFS_FALLBACK
+}
+EOF

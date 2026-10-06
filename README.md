@@ -40,6 +40,25 @@ sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config xiaomi-book-12.4
    bluetoothctl -> agent on; default-agent; scan on; pair <笔地址>; trust <笔地址>
    ```
 
+### ⚠️ GRUB：本机必须显式传 device tree
+
+Arch Linux ARM 的 `grub` 包**完全没有设备树支持**：`/etc/grub.d/` 与
+`/usr/share/grub/` 里没有任何脚本会写 `devicetree` 行（唯一匹配 "dtb" 的是个主题
+PNG），所以 `grub-mkconfig` 生成的菜单项**不会**把 DTB 交给内核。而本机固件是
+Windows 那套 ACPI 固件，**不提供可用的设备树** —— 内核拿不到 DTB 就起不来。
+
+`xiaomi-book-12.4-config` 因此装了一个 `/etc/grub.d/09_xiaomi_book_dtb`：命名成
+`09_` 以便排在 `10_linux` **之前**，生成两个**带 `devicetree`** 的菜单项（普通 +
+fallback initramfs）；内核参数由硬件必需项加 `/etc/default/grub` 拼成，根分区 UUID
+在生成时自动向系统查询（不写死）。
+
+```sh
+sudo grub-mkconfig -o /boot/grub/grub.cfg     # 生效
+sudo chmod -x /etc/grub.d/10_linux            # 建议：免得留下【无 DTB】的菜单项
+```
+
+改设备树路径或内核参数后，重新执行上面第一条即可。
+
 ---
 
 ## 包清单
