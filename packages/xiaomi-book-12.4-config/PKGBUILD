@@ -3,15 +3,21 @@
 # Machine-specific configuration for the Xiaomi Book S 12.4 (sc8180x / TIMI):
 #   * ALSA UCM profile for the WCD9340 + WSA881x speaker setup
 #   * WCN3998 Bluetooth address workaround (unit + udev rule + conf)
-#   * alternative panel device trees
+#
+# It used to carry prebuilt panel device trees as well.  Those were snapshots
+# from the bring-up (before the power key, before the GPU OV states) and are
+# superseded: the panel link mode they encoded is what the kernel source builds
+# anyway, and the power key is described in the DTS.  They stay in the working
+# tree because tools/set-panel-link-mode.sh reads them from there, but they are
+# not shippable artifacts.
 #
 # Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook"
 # and the stylus charger driver in "ra9530-dkms".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=1
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, panel DTs"
+pkgrel=2
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile and Bluetooth address fix"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
@@ -24,12 +30,6 @@ source=(
     'bluetooth-bdaddr.conf'
     'bluetooth-bdaddr.service'
     'bluetooth-bdaddr.sh'
-    'pwrkey-enable.dtbo'
-    'pwrkey-enable.dts'
-    'sc8180x-xiaomi-book-12.4-oc-pwrkey.dtb'
-    'sc8180x-xiaomi-book-12.4.dual-link.dtb'
-    'sc8180x-xiaomi-book-12.4.shallow-cluster.dtb'
-    'sc8180x-xiaomi-book-12.4.single-link.dtb'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
 )
@@ -38,12 +38,6 @@ sha256sums=(
     '51f3ed8a757e5653c186dc26c44b0a96cc327918561f3e51db87af98d074ac7d'
     'd1c942bb46110fb92a13b90aa067d0162c869328e97abdcfb6f42dad73ae0349'
     'e594356e6d37fca26b859306425264d57ad2c104a31db3fb5d19581c771de762'
-    '482d9d38db52f1dd2bb0382b7a8be661ffa571f60021945db8043feb51c49b10'
-    'd13be184e93f4d83c4953329275de39be6913a759fa0ffedf6154ee4ecc4fd9b'
-    'b647a9d7814a865b0943d32ba4757c9e79d9760af2c36a29148c664a1c70320c'
-    '887838e6b2ec2542ccaa5b19434bb8e048872f738d326fa3836347d78db684b3'
-    '63f5424fb842327ac42e2f1bfa792fe3763ec8154d72cc55eb0b8378828c67fa'
-    '930c3c36dad91bc841f86b426490bd2bfa4506f7e1141df8e5b942b887433c6d'
     '03c58f8e9b3e0b1536cad33c1972b63de46efbb757333c97bd7cce363746f00e'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
 )
@@ -60,8 +54,4 @@ package() {
     install -Dm644 bluetooth-bdaddr.conf    "$pkgdir/etc/conf.d/bluetooth-bdaddr"
     install -Dm644 bluetooth-bdaddr.service "$pkgdir/usr/lib/systemd/system/bluetooth-bdaddr.service"
     install -Dm644 60-bluetooth-bdaddr.rules "$pkgdir/usr/lib/udev/rules.d/60-bluetooth-bdaddr.rules"
-
-    # alternative panel device trees
-    install -d "$pkgdir/usr/share/$pkgname/panel-dtb"
-    install -m644 *.dtb *.dtbo *.dts "$pkgdir/usr/share/$pkgname/panel-dtb/"
 }
