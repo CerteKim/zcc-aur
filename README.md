@@ -59,71 +59,62 @@ sudo chmod -x /etc/grub.d/10_linux            # 建议：免得留下【无 DTB�
 
 改设备树路径或内核参数后，重新执行上面第一条即可。
 
-### ⚠️ 不要直接跑 `grub-install`（这台固件的 NVRAM 不可靠）
+### ⚠️ 永远不要在这台机器上跑 `grub-install`（连 `--removable` 也不要）
 
-在这台机器上，**无参数执行 `grub-install` 会导致开机连 GRUB 菜单都进不去** ✗。
-原因是它除了写文件，还会新建一个 `Boot####` 启动项并把它插到最前面；本机固件对
-启动项的处理有厂商扩展，新建的项一旦指向不存在的路径，固件就卡在那里不再往下走 ✗。
+**它会用 ALARM 包构建的核覆盖 `/boot/EFI/Boot/bootaa64.efi`，而那个核在本机起不来**
+✗ —— 等于把唯一能启动的 fallback 换掉。（本文档早先写过 `--removable --no-nvram` 是
+安全刷新的办法，那是错的 ✗：它确实不碰 NVRAM，但会覆盖这个文件。）
 
-**只刷新 fallback 路径、完全不碰 NVRAM** 的做法：
+本机在用的 GRUB 核是从 linux-surface 的 **Surface Pro X 试验镜像**手工拷来的
+（`EFI/arch/grubaa64.efi`，245760 字节）。实测对照：
 
-```sh
-sudo grub-install --target=arm64-efi --efi-directory=/boot --removable --no-nvram
-```
-
-（`--removable` 本身即跳过 NVRAM 写入，`--no-nvram` 是双保险 ✓。）
-
-本机现状（2026-10 实测，供对照）：
-
-| 项目 | 值 |
-|---|---|
-| `BootOrder` | `0000,0003`（Windows、arch） |
-| 厂商私有 `BootOrderTemp` | `0000,0001,0002,0003`，其中 `BootTemp0001` 指向 `\EFI\Boot\bootaa64.efi` |
-| `BootCurrent` | `0003`（`arch` → `\EFI\arch\grubaa64.efi`） |
-| fallback 路径 | `/boot/EFI/Boot/bootaa64.efi` 与 `EFI/arch/grubaa64.efi` 是同一个 GRUB ✓ |
-| ESP | 只有一个（256 MB，剩余 55 MB）—— 排除"写错分区"，更像新建项指向了不存在的路径 |
-
-**两套启动顺序变量内容不一致** ✗：只写标准 `BootOrder` 的工具未必改得到固件实际
-使用的那套，所以不要把启动项交给工具去打理 —— 让 fallback 路径上始终有能用的
-GRUB，机器就总能起来 ✓。
-
-出问题时的自救：开机按固件的 boot menu 键选 `arch`，或直接浏览到
-`\EFI\Boot\bootaa64.efi` ✓；进系统后 `efibootmgr -v` 查看、
-`efibootmgr -b <号> -B` 删坏项、`efibootmgr -o 3,0` 调顺序 ✓。
-
-### 两套 GRUB 并存（A/B 测试）
-
-本机现在这个 GRUB **不是 ALARM 包构建的核**，而是从 linux-surface 的
-Surface Pro X 试验镜像里手工拷来的（245760 字节）：它内嵌了一份 Qualcomm 设备树
-（二进制里 `qcom` 出现 251 次，还有成堆的 DT 节点/属性名），是社区为"固件不提供
-DTB"的机器打的补丁版。ALARM 的 `grub-install` 生成的核只有 159744 字节、**没有任何
-DT 内容**（787 个字符串），两者共用同一套模块（245/245 与 `grub` 包完全一致，其中
-`fdt.mod` 提供 `devicetree` 命令）。
-
-| 文件 | 大小 | 身份 |
+| | 在用的核（SPX 镜像） | ALARM `grub-install` 生成的核 |
 |---|---|---|
-| `/boot/EFI/arch/grubaa64.efi` | 245760 | Surface Pro X 镜像的核（**内嵌 DTB**，当前可用） |
-| `/boot/EFI/Boot/bootaa64.efi` | 245760 | 同上（fallback 路径，保险） |
-| `/boot/grub/arm64-efi/core.efi` | 159744 | ALARM `grub-install` 生成的核（**无 DT**） |
-| `/boot/EFI/Boot/bootaa64.efi.bak` | 159744 | 同上（7-15 的旧副本） |
+| 大小 / 唯一字符串 | 245760 / 1626 | 159744 / 672 |
+| 内嵌设备树 | **有** ✓（`xiaomi,book-12.4`、BOOK124 固件路径…） | **无** ✗ |
+| 本机能否引导 | 能 ✓ | **不能** ✗（在 Windows 里把 UEFI 启动项指过去实测失败） |
+| PE 头 / 烘焙 prefix | PE32+ EFI application / ARM64 / `(,gpt1)/grub` | **完全相同** |
+| 模块查找 | 共用 `/boot/grub/arm64-efi/` | 同上 |
 
-想验证"纯 ALARM 核 + 配置里显式 `devicetree`"能否替代内嵌 DTB 的核，**用链式加载
-测试，零 NVRAM 风险、失败自动退回菜单**：
+ALARM 核里**独有的非 DT 字符串是 0** —— 两者是**同一个 GRUB 构建**，SPX 那份多出来的
+正是内嵌的板级 DTB。既然 PE 头与 prefix 完全一致，ALARM 核起不来只能归因于**代码级
+补丁差异**（字符串看不出来）。结论：**不要把核换掉** ✗，把在用的那份当作手工管理的
+关键资产。
+
+**正确做法（先备份）**：
 
 ```sh
-# 1) 只增加一个 EFI 目录，共享模块与配置，不碰 NVRAM
-sudo grub-install --target=arm64-efi --efi-directory=/boot \
-     --boot-directory=/boot/grub --bootloader-id=grub-alarm --no-nvram
-
-# 2) 在能用的 GRUB 里加一个链式加载项（放进 /etc/grub.d/ 才会在 grub-mkconfig 后保留）
-#    menuentry 'GRUB: ALARM core (test)' {
-#        chainloader /EFI/grub-alarm/grubaa64.efi
-#    }
-sudo grub-mkconfig -o /boot/grub/grub.cfg
+sudo mkdir -p /root/grub-spx-backup
+sudo cp -a /boot/EFI/arch /root/grub-spx-backup/
+sudo cp -a /boot/EFI/Boot/bootaa64.efi /root/grub-spx-backup/bootaa64.efi
+sudo sha256sum /boot/EFI/arch/grubaa64.efi /boot/EFI/Boot/bootaa64.efi \
+     | sudo tee /root/grub-spx-backup/SHA256SUMS
 ```
 
-测试期间 **不要动** `/boot/EFI/Boot/bootaa64.efi`（fallback，出问题时的保险）与
-`/boot/EFI/arch/`（当前在用的核）。
+- `grub` 包的 `/etc/grub.d/` 与 `grub-mkconfig` **照常可用** ✓（`09_xiaomi_book_dtb`
+  就是靠它生效的 ✓）—— 只要**不跑 `grub-install`** ✓。
+- 哪天真要试别的核：**先用链式加载试，不改任何现有文件** ✓，确认能进菜单再替换：
+  ```
+  menuentry 'GRUB: test core' {
+      chainloader /EFI/test/grubaa64.efi
+  }
+  ```
+
+### 固件启动项的坑（诊断记录）
+
+跑 `grub-install` 之后连菜单都进不去，还有一个独立成因：它除了写文件，还会新建
+`Boot####` 并插到最前面，而本固件对启动项有厂商扩展、两套顺序变量内容不一致：
+
+| 变量 | 内容 |
+|---|---|
+| `BootOrder`（标准 GUID） | `0000, 0003` → Windows、arch |
+| `BootOrderTemp`（厂商 GUID `97bf7a1b…`） | `0000, 0001, 0002, 0003`，其中 `BootTemp0001` 指向 `\EFI\Boot\bootaa64.efi` |
+| `BootCurrent` | `0003` → `\EFI\arch\grubaa64.efi` |
+
+只写标准 `BootOrder` 的工具未必改得到固件实际使用的那套 ✗，所以**不要让工具去打理
+启动项**；让 fallback 路径上始终有能用的核，机器就总能起来 ✓。自救顺序：固件 boot
+menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
+`efibootmgr -v` / `-b <号> -B` / `-o 3,0` ✓，或直接从备份拷回 ✓。
 
 ---
 
