@@ -59,6 +59,38 @@ sudo chmod -x /etc/grub.d/10_linux            # 建议：免得留下【无 DTB�
 
 改设备树路径或内核参数后，重新执行上面第一条即可。
 
+### ⚠️ 不要直接跑 `grub-install`（这台固件的 NVRAM 不可靠）
+
+在这台机器上，**无参数执行 `grub-install` 会导致开机连 GRUB 菜单都进不去** ✗。
+原因是它除了写文件，还会新建一个 `Boot####` 启动项并把它插到最前面；本机固件对
+启动项的处理有厂商扩展，新建的项一旦指向不存在的路径，固件就卡在那里不再往下走 ✗。
+
+**只刷新 fallback 路径、完全不碰 NVRAM** 的做法：
+
+```sh
+sudo grub-install --target=arm64-efi --efi-directory=/boot --removable --no-nvram
+```
+
+（`--removable` 本身即跳过 NVRAM 写入，`--no-nvram` 是双保险 ✓。）
+
+本机现状（2026-10 实测，供对照）：
+
+| 项目 | 值 |
+|---|---|
+| `BootOrder` | `0000,0003`（Windows、arch） |
+| 厂商私有 `BootOrderTemp` | `0000,0001,0002,0003`，其中 `BootTemp0001` 指向 `\EFI\Boot\bootaa64.efi` |
+| `BootCurrent` | `0003`（`arch` → `\EFI\arch\grubaa64.efi`） |
+| fallback 路径 | `/boot/EFI/Boot/bootaa64.efi` 与 `EFI/arch/grubaa64.efi` 是同一个 GRUB ✓ |
+| ESP | 只有一个（256 MB，剩余 55 MB）—— 排除"写错分区"，更像新建项指向了不存在的路径 |
+
+**两套启动顺序变量内容不一致** ✗：只写标准 `BootOrder` 的工具未必改得到固件实际
+使用的那套，所以不要把启动项交给工具去打理 —— 让 fallback 路径上始终有能用的
+GRUB，机器就总能起来 ✓。
+
+出问题时的自救：开机按固件的 boot menu 键选 `arch`，或直接浏览到
+`\EFI\Boot\bootaa64.efi` ✓；进系统后 `efibootmgr -v` 查看、
+`efibootmgr -b <号> -B` 删坏项、`efibootmgr -o 3,0` 调顺序 ✓。
+
 ---
 
 ## 包清单
