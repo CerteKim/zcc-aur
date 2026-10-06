@@ -87,6 +87,22 @@ run() {
 }
 die() { echo "!! $*" >&2; exit 1; }
 
+# 出错/中断时也要把挂载点收回去：上一次真实的运行就是在 cp 那里中断，把
+# /dev/sdb1 挂在了 /tmp/tmp.XXXX 上，下一次运行就被自己的"已挂载"检查挡住。
+ESPMNT=
+ROOTMNT=
+tmppac=
+cleanup() {
+    set +e
+    [[ -n $ROOTMNT ]] && mountpoint -q "$ROOTMNT/boot" && umount "$ROOTMNT/boot"
+    [[ -n $ROOTMNT ]] && mountpoint -q "$ROOTMNT" && umount "$ROOTMNT"
+    [[ -n $ESPMNT ]]  && mountpoint -q "$ESPMNT"  && umount "$ESPMNT"
+    [[ -n $tmppac && -f $tmppac ]] && rm -f "$tmppac"
+    return 0
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
+
 # ---------------------------------------------------------------- 前置检查
 [[ $DRY_RUN == yes || $EUID -eq 0 ]] || die "需要 root：sudo $0 $DEV${LIVE:+ --live}"
 [[ -b $DEV ]] || die "$DEV 不是块设备"
@@ -100,7 +116,13 @@ root_disk=$(lsblk -no pkname "$root_src" 2>/dev/null | head -1 || true)
 case "$DEV" in
     /dev/nvme*|/dev/mmcblk*) die "$DEV 看起来是内部设备（NVMe/eMMC/SD），不是 U 盘" ;;
 esac
-lsblk -no MOUNTPOINT "$DEV" | grep -q . && die "$DEV 上有分区已挂载，先 umount"
+if lsblk -no MOUNTPOINT "$DEV" | grep -q .; then
+    echo "!! $DEV 上有分区已挂载：" >&2
+    findmnt -rn -o SOURCE,TARGET | grep "^$DEV" | sed 's/^/     /' >&2
+    echo "   先卸载（上次中断的运行可能留下了挂载点）：" >&2
+    echo "     sudo umount $DEV?    # 或按上面列出的挂载点逐个 umount" >&2
+    exit 1
+fi
 
 for c in sgdisk mkfs.ext4 partprobe blkid; do
     command -v "$c" >/dev/null || die "缺少 $c（pacman -S gptfdisk e2fsprogs util-linux）"
