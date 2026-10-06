@@ -97,6 +97,8 @@ cleanup() {
     [[ -n $ROOTMNT ]] && mountpoint -q "$ROOTMNT/boot" && umount "$ROOTMNT/boot"
     [[ -n $ROOTMNT ]] && mountpoint -q "$ROOTMNT" && umount "$ROOTMNT"
     [[ -n $ESPMNT ]]  && mountpoint -q "$ESPMNT"  && umount "$ESPMNT"
+    [[ -n $ROOTMNT ]] && rmdir "$ROOTMNT" 2>/dev/null
+    [[ -n $ESPMNT ]]  && rmdir "$ESPMNT" 2>/dev/null
     [[ -n $tmppac && -f $tmppac ]] && rm -f "$tmppac"
     return 0
 }
@@ -283,42 +285,21 @@ EOF
     fi
 
     msg "在 chroot 里装运行需要的包、写 mkinitcpio 配置、生成 live initramfs"
-    run cp -f "$HERE/mibook-install.sh" "$ROOTMNT/usr/local/bin/mibook-install.sh"
+    run install -Dm755 "$HERE/mibook-install.sh" "$ROOTMNT/usr/local/bin/mibook-install.sh"
 
-    run arch-chroot "$ROOTMNT" /bin/bash -c '
-        set -e
-        pacman -Sy --noconfirm
+    # chroot 里的设置放在仓库自己的 maintainer/mibook-live-setup.sh 里，复制进去
+    # 再执行 —— 不要塞进 bash -c '……'：上一版就是那样翻车的，里面的
+    # --overwrite '/boot/*' 用单引号把外层字符串提前闭掉，/boot/* 被 shell 展开成
+    # /boot 下的真实文件，pacman 把 /boot/dtb、/boot/vmlinuz-linux-mibook 当包文件装。
+    run install -Dm755 "$HERE/mibook-live-setup.sh" "$ROOTMNT/root/mibook-live-setup.sh"
 
-        # live 系统本身要用的（DKMS 那两个包只留在 /var/cache/mibook，供装到内部磁盘）
-        #
-        # --overwrite /boot/*：p1（就是 live 系统的 /boot）上已经有我们放好的
-        # vmlinuz-linux-mibook、initramfs 和 DTB，而它们不属于任何包 —— 不覆盖的话
-        # pacman 会以 "exists in filesystem" 直接拒绝安装整个内核包。
-        pacman -U --noconfirm --overwrite '/boot/*' \
-            /var/cache/mibook/linux-mibook-*.pkg.tar.* \
-            /var/cache/mibook/xiaomi-book-12.4-*.pkg.tar.* \
-            /var/cache/mibook/iio-sensor-proxy-ssc-*.pkg.tar.* \
-            /var/cache/mibook/qrtr-*.pkg.tar.* \
-            /var/cache/mibook/qmic-*.pkg.tar.* \
-            /var/cache/mibook/pd-mapper-*.pkg.tar.* \
-            /var/cache/mibook/rmtfs-*.pkg.tar.* \
-            /var/cache/mibook/tqftpserv-*.pkg.tar.*
-
-        # 救援与安装要用的工具
-        pacman -S --noconfirm --needed \
-            nano vim less arch-install-scripts \
-            gptfdisk parted dosfstools btrfs-progs rsync efibootmgr iwd
-
-        # ext4 根：本机 autodetect 看不见 ext4（根和 SD 卡都是 btrfs），显式带上
-        sed -i "s|^HOOKS=.*|HOOKS=(base systemd autodetect microcode modconf xiaomi-book124-firmware kms keyboard sd-vconsole block filesystems fsck)|" /etc/mkinitcpio.conf
-        sed -i "s|^MODULES=.*|MODULES=(ext4)|" /etc/mkinitcpio.conf
-
-        passwd -d root
-        systemctl enable iwd.service systemd-networkd.service
-        systemctl set-default multi-user.target
-        chmod +x /usr/local/bin/mibook-install.sh
-        mkinitcpio -P
-    '
+    if [[ $DRY_RUN == yes ]]; then
+        echo "    [dry-run] arch-chroot $ROOTMNT /bin/bash /root/mibook-live-setup.sh"
+        echo "    [dry-run] 内容见 maintainer/mibook-live-setup.sh"
+    else
+        bash -n "$ROOTMNT/root/mibook-live-setup.sh" || die "mibook-live-setup.sh 语法有误"
+        run arch-chroot "$ROOTMNT" /bin/bash /root/mibook-live-setup.sh
+    fi
 
     run sync
     run umount "$ROOTMNT/boot"
