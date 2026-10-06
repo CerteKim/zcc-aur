@@ -34,9 +34,22 @@
 set -euo pipefail
 
 ESP_SIZE_MB=${ESP_SIZE_MB:-1536}
-STAGE=${STAGE:-$HOME/mibook-usb}
-GRUB_BACKUP=${GRUB_BACKUP:-$HOME/grub-spx-backup}
-PKGDIR=${PKGDIR:-$HOME/zcc-aur/repo}
+KNOWN_CORE_SHA=204b6d8913d249c331ac13d689644f9342d8df7491fed0a9435b263d10a827ca
+
+# sudo 可能把 HOME 换成 /root（取决于 sudoers 里的 always_set_home / env_keep），
+# 那样 ~/mibook-usb、~/grub-spx-backup、~/aarch64-packages 全都找不到 —— 这正是
+# 第一次运行时报「找不到 linux-mibook 包」的原因。默认路径一律按**调用者**的家
+# 目录算。
+if [[ -n ${SUDO_USER:-} && ${SUDO_USER} != root ]]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    USER_HOME=$HOME
+fi
+[[ -d $USER_HOME ]] || USER_HOME=$HOME
+
+STAGE=${STAGE:-$USER_HOME/mibook-usb}
+GRUB_BACKUP=${GRUB_BACKUP:-$USER_HOME/grub-spx-backup}
+PKGDIR=${PKGDIR:-$USER_HOME/zcc-aur/repo}
 KERNEL_PKG=${KERNEL_PKG:-}
 LIVE=no
 DRY_RUN=no
@@ -105,20 +118,54 @@ fi
     die "找不到 $STAGE/esp/EFI/BOOT/BOOTAA64.EFI —— 先跑 maintainer/stage-mibook-usb.sh"
 
 core_sha=$(sha256sum "$STAGE/esp/EFI/BOOT/BOOTAA64.EFI" | awk '{print $1}')
-if [[ -f $GRUB_BACKUP/SHA256SUMS ]] && grep -q "$core_sha" "$GRUB_BACKUP/SHA256SUMS"; then
+if [[ $core_sha == "$KNOWN_CORE_SHA" ]]; then
     msg "GRUB 核校验通过（$core_sha）"
+    if [[ -f $GRUB_BACKUP/SHA256SUMS ]] && ! grep -q "$core_sha" "$GRUB_BACKUP/SHA256SUMS"; then
+        echo "   注意：$GRUB_BACKUP/SHA256SUMS 里记的不是这个哈希，备份可能过期了。" >&2
+        echo "   重新生成备份：./maintainer/stage-mibook-usb.sh" >&2
+    fi
 else
     echo "!! $STAGE/esp/EFI/BOOT/BOOTAA64.EFI 的 sha256 ($core_sha)" >&2
-    echo "   不在 $GRUB_BACKUP/SHA256SUMS 里 —— 这恐怕不是那份验证过能引导的核。" >&2
+    echo "   不是那份验证过能引导的核（应为 $KNOWN_CORE_SHA）。" >&2
+    echo "   先跑 ./maintainer/stage-mibook-usb.sh 从当前系统的 /boot/EFI 重新生成。" >&2
     [[ $ASSUME_YES == yes ]] || { read -r -p "仍要继续？(yes/NO) " a; [[ $a == yes ]] || exit 1; }
 fi
 
 if [[ $LIVE == yes ]]; then
     if [[ -z $KERNEL_PKG ]]; then
-        KERNEL_PKG=$(ls -1 "$HOME"/aarch64-packages/linux-surface/linux-mibook-*.pkg.tar.* 2>/dev/null | sort -V | tail -1 || true)
+        # 内核包可能放在几个地方，而且 sudo 下 $HOME 未必是调用者的家目录
+        # （见文件开头 USER_HOME 的说明），所以都找一遍。
+        search_dirs=(
+            "$USER_HOME/aarch64-packages/linux-surface"
+            "$USER_HOME/zcc-aur/repo"
+            "$USER_HOME/aarch64-packages"
+            /var/cache/pacman/pkg
+        )
+        for d in /home/*/aarch64-packages/linux-surface; do
+            [[ -d $d ]] && search_dirs+=("$d")
+        done
+        found=()
+        for d in "${search_dirs[@]}"; do
+            [[ -d $d ]] || continue
+            for f in "$d"/linux-mibook-*.pkg.tar.*; do
+                [[ -f $f ]] && found+=("$f")
+            done
+        done
+        if ((${#found[@]})); then
+            KERNEL_PKG=$(printf '%s\n' "${found[@]}" | sort -V | tail -1)
+        fi
     fi
-    [[ -n $KERNEL_PKG && -f $KERNEL_PKG ]] || die \
-        "找不到 linux-mibook 包；用 --kernel <文件> 指定（例如 ~/aarch64-packages/linux-surface/linux-mibook-6.18.2-1-21-aarch64.pkg.tar.zst）"
+    if [[ -z $KERNEL_PKG || ! -f $KERNEL_PKG ]]; then
+        if [[ -n $KERNEL_PKG ]]; then
+            echo "!! --kernel 给的文件不存在：$KERNEL_PKG" >&2
+        else
+            echo "!! 找不到 linux-mibook 包。找过这些地方：" >&2
+            for d in "${search_dirs[@]:-}"; do [[ -n $d ]] && echo "     $d" >&2; done
+        fi
+        echo "   用 --kernel <文件> 指定，例如：" >&2
+        echo "     sudo $0 $DEV --live --kernel $USER_HOME/aarch64-packages/linux-surface/linux-mibook-6.18.2-1-21-aarch64.pkg.tar.zst" >&2
+        exit 1
+    fi
     [[ -f $HERE/mibook-install.sh ]] || die "缺少 $HERE/mibook-install.sh"
 fi
 
