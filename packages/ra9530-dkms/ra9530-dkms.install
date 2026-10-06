@@ -16,13 +16,13 @@ purge_stale() {
 post_install() {
     echo "==> 为当前内核构建并安装 RA9530 模块"
     purge_stale
-    if dkms install -m ra9530 -v 1.0 --force; then
+    if dkms install -m ra9530 -v 1.0.1 --force; then
         echo "    完成。检查：dmesg | grep -i ra9530"
     else
         echo "!! DKMS 构建失败。最常见的原因是缺少当前内核的构建目录："
         echo "     /lib/modules/$(uname -r)/build"
         echo "   装好对应内核（例如 linux-mibook）后手动重试："
-        echo "     sudo dkms install -m ra9530 -v 1.0 --force"
+        echo "     sudo dkms install -m ra9530 -v 1.0.1 --force"
     fi
 
     echo
@@ -46,5 +46,5 @@ post_upgrade() {
 
 pre_remove() {
     echo "==> 移除 DKMS 模块"
-    dkms remove -m ra9530 -v 1.0 --all || true
+    dkms remove -m ra9530 -v 1.0.1 --all || true
 }

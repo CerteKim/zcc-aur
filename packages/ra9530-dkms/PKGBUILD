@@ -13,8 +13,8 @@
 # with any other kernel that provides the device tree node.
 
 pkgname=ra9530-dkms
-pkgver=1.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=1
 pkgdesc="Renesas RA9530 wireless power transmitter — Xiaomi Book S 12.4 stylus charger (DKMS)"
 arch=('any')
 url="https://github.com/CerteKim/ra9530-mainline"
@@ -22,7 +22,7 @@ license=('GPL-2.0-or-later')
 depends=('dkms')
 install=$pkgname.install
 source=("$pkgname-$pkgver.tar.gz::https://github.com/CerteKim/ra9530-mainline/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('0431fbfc27ac817f18186f84b92c0e1781e5c34c306e6ac91b8a2e9996b22033')
+sha256sums=('d6eac86321b4c92fc2fccd9f1d6225c4cec84c820b722c9757054e8e86ea6ef2')
 
 package() {
     # DKMS looks the sources up as /usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}
