@@ -123,13 +123,7 @@ _package() {
     done
     mkdir -p "${pkgdir}/boot/dtb/${pkgbase}" && cp -r "${modulesdir}/dtb/." "${pkgdir}/boot/dtb/${pkgbase}/"
 
-    # The source now builds a single device tree.  The local GRUB entries still
-    # name the historical "-oc" file (the default menu entry boots it, the
-    # Advanced one the plain name), so install the same tree under that name as
-    # well; drop this copy once those entries are updated.
     local qdir="${pkgdir}/boot/dtb/${pkgbase}/qcom"
-    install -Dm644 "${qdir}/sc8180x-xiaomi-book-12.4.dtb" \
-        "${qdir}/sc8180x-xiaomi-book-12.4-oc.dtb"
 
     # Probe variant for the video work: same tree, VPU node enabled.  Nothing
     # references it until tools/probe-vdec-run.sh installs it.
