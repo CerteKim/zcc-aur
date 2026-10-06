@@ -127,8 +127,14 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据。这些**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
 | **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）。 |
 | **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装等。 |
+| **`qrtr` `qmic` `pd-mapper` `rmtfs` `tqftpserv`** | linux-msm 的**高通用户态服务栈**：IPC 路由器（qrtr）、QMI 客户端库（qmic）、保护域映射（pd-mapper）、远端文件系统服务（rmtfs）、给 DSP 供固件的 TFTP 服务（tqftpserv）。PKGBUILD 沿用 Maximilian Luz 的版本（上游 BSD）。 |
+| **`cdba`** | 高通的 Core Dump Bridge Agent（调试用）。构建前需先 `sudo pacman -S libftdi`（在 `extra` 里）。 |
 
 `maintainer/` 目录里是**不打包**的开发脚本（写死了维护者的检出路径），仅供仓库维护使用。
+
+> 高通栈里 **`rmtfs-dummy` 未收录** ✗：它的 `0001-Redirect-file-lookups-to-var-lib-rmtfs.patch`
+> 已经跟不上上游（`rmtfs.service.in` 处 `patch does not apply`），`prepare()` 直接失败。
+> 真需要时得先把补丁更新到当前上游。
 
 ### 关于固件包
 

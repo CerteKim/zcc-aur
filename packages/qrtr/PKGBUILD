@@ -1,0 +1,28 @@
+# Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
+
+pkgname=qrtr
+pkgver=v1.2.r18.g29e36ae
+pkgrel=1
+pkgdesc="Qualcomm QRTR name service"
+arch=('armv7h' 'aarch64' 'x86_64')
+url="https://github.com/linux-msm/qrtr"
+license=('BSD')
+makedepends=('git')
+source=('git+https://github.com/linux-msm/qrtr.git')
+sha256sums=('SKIP')
+
+pkgver() {
+	cd "$pkgname"
+	git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+	cd "$pkgname"
+	arch-meson . build
+	meson compile -C build
+}
+
+package() {
+	cd "$pkgname"
+	meson install -C build --destdir "$pkgdir"
+}

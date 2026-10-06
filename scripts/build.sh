@@ -7,6 +7,7 @@
 #   ./scripts/build.sh ra9530-dkms        # 只构建指定的包（可多个）
 #   ./scripts/build.sh --collect <目录>    # 不构建，把目录里已有的 *.pkg.tar.* 收进 repo/
 #   ./scripts/build.sh --list             # 列出仓库里现有的包
+#   ./scripts/build.sh --db               # 只重建数据库（产物已在 repo/ 时）
 #
 # 说明:
 #   * 内核包（linux-mibook）在 aarch64 上编译需要 1~2 小时，通常用
@@ -69,6 +70,11 @@ case "${1:-}" in
         ;;
     --list)
         find "$REPO" -maxdepth 1 -name '*.pkg.tar.*' -printf '  %f  (%s 字节)\n' | sort
+        ;;
+    --db)
+        # 已经有产物时只重建数据库（例如用 PKGDEST=repo/ 直接构建之后）
+        prune_old
+        make_db
         ;;
     ""|--all)
         shopt -s nullglob
