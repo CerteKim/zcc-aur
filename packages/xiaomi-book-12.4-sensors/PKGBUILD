@@ -1,0 +1,110 @@
+# Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+#
+# SLPI sensor stack for the Xiaomi Book S 12.4 (sc8180x / TIMI).
+#
+# Why this exists: this board's sensors (icm4x6xx accelerometer/gyro, stk3a5x
+# ambient light/proximity) are not I2C devices the kernel talks to directly -
+# they sit behind the SLPI's Sensors Service Core (SSC) and are only reachable
+# over FastRPC.  Two pieces are needed:
+#
+#   * hexagonrpcd (linux-msm/hexagonrpc, GPL-3.0) - the FastRPC daemon that
+#     exposes the SSC to userspace; iio-sensor-proxy talks to it through libssc;
+#   * the SSC sensor *registry*, which tells the SSC how each sensor is wired.
+#     It is not part of hexagonrpc and has to come from this machine's Windows
+#     installation (see registry-provenance.md); without it the SSC answers
+#     "registry sensor unavailable" forever and no sensor ever appears.
+#
+# Both used to be installed by hand from ~/qcom-slpi/install.sh, together with
+# the fastrpc user/group (now a sysusers.d file) and the FastRPC udev rules.
+# Rule 91-fastrpc-sensors.rules works around a real gap in upstream's
+# 80-iio-sensor-proxy.rules: that one only tags the FastRPC DSP device with
+# "ssc-light ssc-compass", so iio-sensor-proxy never engages drv-ssc-accel.c or
+# drv-ssc-proximity.c (each gates on its own exact string).  Rule
+# 92-fastrpc-accel-matrix.rules carries the board's accelerometer mount matrix,
+# which only takes effect with the patched iio-sensor-proxy (see
+# iio-sensor-proxy-ssc).
+#
+# The sdsp unit shipped here already carries "-R <registry root>"; the hand-made
+# setup used a systemd drop-in in /etc/systemd/system for that instead.
+#
+# The registry tarball is generated locally by
+# scripts/make-sensors-registry-tarball.sh and is not tracked by git: it is
+# vendor data extracted from Windows, the same policy as the firmware package.
+
+pkgname=xiaomi-book-12.4-sensors
+pkgver=0.5.0                        # the hexagonrpc release we build
+_registryver=1                      # separate counter for the registry tarball
+pkgrel=1
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): SLPI sensor stack (hexagonrpcd + SSC registry)"
+arch=('aarch64')
+url="https://github.com/linux-msm/hexagonrpc"
+license=('GPL-3.0-only')            # hexagonrpc; the registry itself is vendor data
+depends=('glibc')
+makedepends=('meson' 'ninja')
+install="$pkgname.install"
+
+source=("hexagonrpc-$pkgver.tar.gz::https://github.com/linux-msm/hexagonrpc/archive/refs/tags/v$pkgver.tar.gz"
+        "$pkgname-registry-$_registryver.tar.zst"
+        'hexagonrpcd-sdsp.service'
+        'hexagonrpcd-sdsp.path'
+        '90-fastrpc.rules'
+        '91-fastrpc-sensors.rules'
+        '92-fastrpc-accel-matrix.rules'
+        'fastrpc-sysusers.conf'
+        'registry-provenance.md')
+sha256sums=('2173985932ab68d8ac593f9954357123bdbbbe9ba5f1b17a098d9cbcec22c5d5'
+            '4e0f3df4c6f1b4842e59ce1a0d484dc375b3546460eacc30ed8cbe839b70102e'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+build() {
+    cd "hexagonrpc-$pkgver"
+
+    # libexecdir=/usr/lib on purpose: upstream installs chrecd into
+    # <libexecdir>/hexagonrpc, and the reference layout on this machine has it
+    # at /usr/lib/hexagonrpc/chrecd (not /usr/libexec/...).
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --libexecdir=/usr/lib \
+        --buildtype=plain \
+        -Dhexagonrpcd_verbose=false
+    meson compile -C build
+}
+
+package() {
+    cd "hexagonrpc-$pkgver"
+    meson install -C build --destdir="$pkgdir"
+
+    # Units: replace the generated sdsp unit with the one that passes the
+    # registry root, and add the path unit that fixes the boot race (it is what
+    # actually starts the daemon, see the comment inside it).
+    install -Dm644 "$srcdir/hexagonrpcd-sdsp.service" \
+        "$pkgdir/usr/lib/systemd/system/hexagonrpcd-sdsp.service"
+    install -Dm644 "$srcdir/hexagonrpcd-sdsp.path" \
+        "$pkgdir/usr/lib/systemd/system/hexagonrpcd-sdsp.path"
+
+    # FastRPC device node permissions, the SSC sensor types for
+    # iio-sensor-proxy, and the accelerometer mount matrix.
+    install -Dm644 "$srcdir/90-fastrpc.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/90-fastrpc.rules"
+    install -Dm644 "$srcdir/91-fastrpc-sensors.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/91-fastrpc-sensors.rules"
+    install -Dm644 "$srcdir/92-fastrpc-accel-matrix.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/92-fastrpc-accel-matrix.rules"
+
+    # fastrpc user/group (previously created by hand with useradd)
+    install -Dm644 "$srcdir/fastrpc-sysusers.conf" \
+        "$pkgdir/usr/lib/sysusers.d/fastrpc.conf"
+
+    # SSC sensor registry: the tarball is laid out as usr/share/qcom/...
+    cp -a "$srcdir/usr/." "$pkgdir/usr/"
+
+    install -Dm644 "$srcdir/registry-provenance.md" \
+        "$pkgdir/usr/share/doc/$pkgname/provenance.md"
+}

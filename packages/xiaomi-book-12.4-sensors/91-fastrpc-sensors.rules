@@ -1,0 +1,15 @@
+# Upstream /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules only tags the
+# FastRPC DSP device with "ssc-light ssc-compass", so iio-sensor-proxy never
+# engages drv-ssc-accel.c or drv-ssc-proximity.c - each gates on
+# IIO_SENSOR_PROXY_TYPE containing its own exact string.
+#
+# Both sensors are known good on this machine via libssc: the accelerometer is
+# an icm4x6xx (ssccli prints gravity) and proximity is an stk3a5x.  This is a
+# genuine gap in the upstream rule, not something board-specific.
+#
+# The accelerometer additionally needs the startup-claim patch to
+# iio-sensor-proxy, otherwise gnome-shell's early claim during proxy startup
+# leaves it dead for the whole session - see
+# ~/qcom-slpi/iio-sensor-proxy/0001-start-sensor-claimed-during-startup.patch
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"

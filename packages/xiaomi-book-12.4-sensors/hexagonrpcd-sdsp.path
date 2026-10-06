@@ -1,0 +1,29 @@
+# Start hexagonrpcd-sdsp deterministically when the FastRPC SDSP device exists.
+#
+# Why this exists: hexagonrpcd-sdsp.service carries
+#     ConditionPathExists=/dev/fastrpc-sdsp
+# and is WantedBy=multi-user.target.  The kernel creates /dev/fastrpc-sdsp only
+# after the SLPI fastrpc driver has probed, which on this board happens about
+# 1.3 s AFTER systemd evaluates the unit at boot:
+#
+#     12:57:40  systemd: skipped, unmet condition ConditionPathExists
+#     12:57:41  kernel:  qcom,fastrpc ... compute-cb@1: Adding to iommu group 13
+#     12:57:41  /dev/fastrpc-sdsp created
+#
+# systemd does not re-evaluate a failed condition, and the device's own udev
+# rules only pull in iio-sensor-proxy.service (SYSTEMD_WANTS), not hexagonrpcd.
+# So the daemon never started, the SSC was never given the sensor registry, and
+# the accelerometer silently disappeared after a reboot - the proxy just
+# retried "registry sensor unavailable" forever.
+#
+# A path unit has no such race: it activates at multi-user.target and starts the
+# service whenever the device appears, before or after that point.
+[Unit]
+Description=Start hexagonrpcd-sdsp when the FastRPC SDSP device appears
+
+[Path]
+PathExists=/dev/fastrpc-sdsp
+Unit=hexagonrpcd-sdsp.service
+
+[Install]
+WantedBy=multi-user.target

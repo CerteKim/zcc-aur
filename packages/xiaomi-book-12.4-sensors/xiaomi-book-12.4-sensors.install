@@ -1,0 +1,70 @@
+_enable_stack() {
+    # fastrpc 用户/组：sysusers.d 会在 pacman 事务结束时由 systemd-sysusers 的
+    # hook 建好，但我们要在那之前就启动服务，所以这里先跑一次（幂等）。
+    if ! id -u fastrpc >/dev/null 2>&1 && command -v systemd-sysusers >/dev/null 2>&1; then
+        systemd-sysusers /usr/lib/sysusers.d/fastrpc.conf 2>/dev/null || true
+    fi
+
+    # udev 规则（fastrpc 设备节点权限 + 传感器类型 + 安装矩阵）要立刻生效一次，
+    # 否则这一轮开机拿不到 /dev/fastrpc-* 的 group 和 IIO_SENSOR_PROXY_TYPE。
+    if command -v udevadm >/dev/null 2>&1; then
+        echo "==> 重新加载 udev 规则并触发 FastRPC 设备"
+        udevadm control --reload 2>/dev/null || true
+        udevadm trigger --sysname-match=fastrpc-sdsp 2>/dev/null || true
+        udevadm trigger --sysname-match=fastrpc-adsp 2>/dev/null || true
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload 2>/dev/null || true
+        # 真正拉起守护进程的是 .path 单元：服务自带的 ConditionPathExists
+        # 会在 /dev/fastrpc-sdsp 出现前 1.3 秒就被判定失败，而 systemd 不会
+        # 重试失败的条件（详见单元里的注释）。
+        if systemctl enable --now hexagonrpcd-sdsp.path 2>/dev/null; then
+            echo "    ✓ hexagonrpcd-sdsp.path 已启用"
+        else
+            echo "    手动启用：sudo systemctl enable --now hexagonrpcd-sdsp.path"
+        fi
+    fi
+
+    echo
+    echo "==> 检查"
+    if [ -e /dev/fastrpc-sdsp ]; then
+        echo "    ✓ /dev/fastrpc-sdsp 存在"
+    else
+        echo "    · /dev/fastrpc-sdsp 还没有 —— SLPI 的 fastrpc 驱动没起来？"
+        echo "      （也可能是本模块未加载：dmesg | grep -i fastrpc）"
+    fi
+    if id -u fastrpc >/dev/null 2>&1; then
+        echo "    ✓ fastrpc 用户存在（uid $(id -u fastrpc)）"
+    else
+        echo "    · fastrpc 用户还没建：重启或执行 sudo systemd-sysusers"
+    fi
+    echo "    验证传感器：systemctl status hexagonrpcd-sdsp.service"
+    echo "                monitor-sensor   # 应有加速度计/光线，转动设备数值会变"
+}
+
+post_install() {
+    echo "==> Xiaomi Book S 12.4 SLPI 传感器栈"
+    _enable_stack
+    echo
+    echo "==> 屏幕自动旋转还需要打补丁的 iio-sensor-proxy（iio-sensor-proxy-ssc）"
+    echo "    和 GNOME 侧的 mutter#4931 workaround（见仓库 README 的 SYSTEM-CONFIG.md）"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        echo "==> 停用传感器单元"
+        systemctl disable --now hexagonrpcd-sdsp.path 2>/dev/null || true
+        systemctl stop hexagonrpcd-sdsp.service 2>/dev/null || true
+    fi
+}
+
+post_remove() {
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload 2>/dev/null || true
+    fi
+}

@@ -1,0 +1,39 @@
+# SC8180X / Xiaomi Book S 12.4: corrected SSC accelerometer mount matrix.
+#
+# Facts that pin this down (per the BIOS/native image direction, corroborated
+# by the DRM mode): the panel's native mode is 1600x2560, i.e. PORTRAIT, so a
+# keyboard-attached landscape desktop needs mutter to apply a 90/270 degree
+# transform (1 or 3).
+#
+# iio-sensor-proxy's orientation.c classifies the (already quirked) vector as:
+#     portrait_rotation  = atan2(x, sqrt(y*y + z*z))
+#     landscape_rotation = atan2(y, sqrt(x*x + z*z))
+# |portrait| > 35 deg picks left-up/right-up from the SIGN OF X; otherwise
+# |landscape| > 35 deg picks bottom-up/normal from the SIGN OF Y.
+# mutter maps normal -> 0, left-up -> 90 (1), bottom-up -> 180 (2),
+# right-up -> 270 (3).  There is no transform 8.
+#
+# First attempt here was 0,-1,0;1,0,0;0,0,1.  It is wrong: it rotates the raw
+# frame by 90 deg, so the keyboard-landscape hold lands in the LANDSCAPE branch
+# and reports "bottom-up" -> transform 180, i.e. an upside-down portrait image.
+# (The "transform 8" it was originally chosen for does not exist.)
+#
+# What the earlier matrix sweep left installed in /etc was
+# 1,0,0;0,-1,0;0,0,1 - a REFLECTION (det = -1), not a rotation.  It inverts the
+# handedness of the sensor frame, so the two portrait holds read correctly while
+# the two landscape holds are swapped: observed on hardware as "portrait fine,
+# both landscape holds 180 deg out".
+#
+# The fix is the 180 degree rotation about the screen normal below (det = +1):
+#     -1,  0, 0     display x = -raw x   (swaps left-up <-> right-up)
+#      0, -1, 0     display y = -raw y   (keeps normal <-> bottom-up)
+#      0,  0, 1     display z =  raw z   (screen normal)
+# Checked against the 18 (quirked vector -> orientation) pairs logged while
+# rotating the device: all 8 portrait samples keep their label, all 10
+# landscape samples swap.
+#
+# libssc applies the vendor matrix to every sample before iio-sensor-proxy sees
+# it, so this cannot be corrected through the sensor properties - hence the
+# ACCEL_MOUNT_MATRIX override in drv-ssc-accel.c, the same property the IIO
+# drivers already honour.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{ACCEL_MOUNT_MATRIX}="-1,0,0;0,-1,0;0,0,1"

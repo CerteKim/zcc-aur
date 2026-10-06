@@ -1,0 +1,2 @@
+# FastRPC device nodes, so hexagonrpcd can run as the unprivileged fastrpc user
+KERNEL=="fastrpc-*", GROUP="fastrpc", MODE="0660"
