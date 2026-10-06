@@ -46,13 +46,31 @@ msg "写 mkinitcpio 配置"
 sed -i "s|^HOOKS=.*|HOOKS=(base systemd autodetect microcode modconf xiaomi-book124-firmware kms keyboard sd-vconsole block filesystems fsck)|" /etc/mkinitcpio.conf
 sed -i "s|^MODULES=.*|MODULES=(ext4)|" /etc/mkinitcpio.conf
 
-msg "live 系统的收尾设置"
+msg "启用本机需要的服务（和内部系统保持一致）"
 passwd -d root
-systemctl enable iwd.service systemd-networkd.service
 systemctl set-default multi-user.target
+
+# 高通用户态服务：这三个包只"装上"，不会自己 enable（Arch 的打包规矩），
+# 但 DSP/调制解调器的保护域映射（pd-mapper）、EFS 文件系统（rmtfs）、DSP 固件
+# 传输（tqftpserv）都指着它们。缺了它们，子系统会在启动后崩溃 —— 实测在 live
+# 系统里就是调制解调器（4080000.remoteproc，MPSS）crash + sysmon
+# "timeout waiting for subsystem event response"。内部系统里这三个都是 enabled。
+systemctl enable pd-mapper.service rmtfs.service tqftpserv.service
+
+# 传感器链路：sensors 包的 .install 用的是 `enable --now`，在 chroot 里 --now 会
+# 失败、于是连 enable 也没成，所以这里显式再来一次。
+systemctl enable hexagonrpcd-sdsp.path
+
+# 打补丁的 iio-sensor-proxy（提供 iio-sensor-proxy.service）
+systemctl enable iio-sensor-proxy.service
+
+# 网络：有线走 systemd-networkd，无线走 iwd
+systemctl enable iwd.service systemd-networkd.service
+
 [[ -f /usr/local/bin/mibook-install.sh ]] && chmod +x /usr/local/bin/mibook-install.sh
 
 msg "生成 live initramfs（写到 U 盘的 ESP 上）"
 mkinitcpio -P
 
 msg "live 系统就绪"
+echo "    已启用: pd-mapper rmtfs tqftpserv hexagonrpcd-sdsp.path iio-sensor-proxy iwd systemd-networkd"
