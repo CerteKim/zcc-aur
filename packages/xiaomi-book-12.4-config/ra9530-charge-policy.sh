@@ -33,6 +33,9 @@
 #   pen_present == 1（吸附）-> stylus 的 inhibited=1
 #   pen_present == 0（取下）-> inhibited=0，笔恢复正常输入
 #   读不到 pen_present（驱动没加载）-> 什么都不做，宁可留着笔可用
+#   每一拍都按 sysfs 里的实际值对账，所以设备重新探测（HID 复位 / 挂起恢复）
+#   之后也能自动把屏蔽补回来；反过来，手工写 0 也会被下一拍改回 1（这是一条策略，
+#   要停就停服务）。
 #
 #   已知延迟：驱动的 chg->pen_present 只在 5 秒一次的 monitor work 里更新
 #   （ra9530_monitor_work()，RA9530_MONITOR_MS），IRQ 路径不更新，所以这个闸门
@@ -98,13 +101,17 @@ fi
 [[ -x "$BATT_SH" ]] || { echo "找不到 $BATT_SH" >&2; exit 1; }
 
 GATE_PATH=$(stylus_inhibit_path) || GATE_PATH=""
-GATE_STATE=""        # 最近一次读到的 pen_present: 1 / 0
 GATE_WARNED=no
+GATE_WRITE_WARNED=no
 
+# 每一拍都跟 sysfs 里的实际值对账，而不是记一个"我以为已经写进去了"的状态：
+# 设备重新探测（HID 复位、挂起恢复）会给出一个 inhibited=0 的新节点，记状态的
+# 话就再也不会把它补回来，光标又会开始闪。
 apply_gate() {
-    local present
+    local present want cur
     present=$(cat "$PEN_PRESENT" 2>/dev/null) || present=""
     case "$present" in 0|1) ;; *) return 0 ;; esac   # 读不到吸附状态就不动笔
+    want=$present                                    # 吸附(1) → 屏蔽(1)
 
     if [[ -z "$GATE_PATH" || ! -w "$GATE_PATH" ]]; then
         GATE_PATH=$(stylus_inhibit_path) || GATE_PATH=""
@@ -118,18 +125,19 @@ apply_gate() {
     fi
     GATE_WARNED=no
 
-    [[ "$present" == "$GATE_STATE" ]] && return 0
+    cur=$(cat "$GATE_PATH" 2>/dev/null) || cur=""
+    [[ "$cur" == "$want" ]] && return 0
 
-    if [[ "$present" == 1 ]]; then
-        if echo 1 > "$GATE_PATH" 2>/dev/null; then
-            GATE_STATE=1
+    if echo "$want" > "$GATE_PATH" 2>/dev/null; then
+        GATE_WRITE_WARNED=no
+        if [[ "$want" == 1 ]]; then
             log "笔已吸附 → 屏蔽笔输入（$GATE_PATH），避免光标被拽到磁吸位"
-        fi
-    else
-        if echo 0 > "$GATE_PATH" 2>/dev/null; then
-            GATE_STATE=0
+        else
             log "笔已取下 → 恢复笔输入"
         fi
+    elif [[ "$GATE_WRITE_WARNED" == no ]]; then
+        log "写 $GATE_PATH 失败，下一拍重试"
+        GATE_WRITE_WARNED=yes
     fi
 }
 
