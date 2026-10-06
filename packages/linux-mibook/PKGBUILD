@@ -13,22 +13,28 @@ arch=("aarch64")
 options=("!strip")
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 
-# 430e0db is the tip of xiaomi-mainline-panel2 in the local mirror: on top of
-# 5788790 (LPG-PWM backlight, power key, volume keys, higher GPU DVFS states)
-# it keeps the user's WSA881x "PA Volume" across DAPM power-up, drops the
-# S24_LE speaker-backend quirk that was costing 20-48 dB, and (now that the
-# level is right) caps the WCD934x RX digital volumes at 0 dB, and narrows the
-# playback front ends to S16_LE (an S24_LE front end is 20-48 dB down).
+# ece7511 is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
+# backlight, power key, volume keys, higher GPU DVFS states) it keeps the user's
+# WSA881x "PA Volume" across DAPM power-up, drops the S24_LE speaker-backend
+# quirk that was costing 20-48 dB, and (now that the level is right) caps the
+# WCD934x RX digital volumes at 0 dB, and narrows the playback front ends to
+# S16_LE (an S24_LE front end is 20-48 dB down).
+#
+# It now also describes the RA9530 stylus charger on i2c7 (0x3b) and drops that
+# bus to the 400 kHz the firmware declares, so a kernel built from this commit
+# produces a DTB the ra9530-dkms driver binds to without any post-install
+# device tree patching.
 #
 # pkgrel is deliberately left at 1: bumping it would change the release string
 # from 6.18.2-1-mibook+ and invalidate the modules already built against the
 # installed kernel.
-_ref_ksource="430e0dbdb5086be878e2ed4eddf45a1fe46bbc1b"
+_ref_ksource="ece7511eb4f6cd787210d86965973d027e6e47cc"
 _ref_config_base="e36ada85974d22c05d1442a4ac47f958c7fa8e15"
 
-# The branch with the mainline panel driver is not pushed to GitHub yet, so the
-# source is the local mirror this repository already uses as its origin.  Once
-# the branch is on GitHub, replace the source below with
+# The branch is public at github.com/CerteKim/linux-a51 (the GPL source for the
+# packages built here), but a full clone of the kernel is 3+ GB, so the default
+# source stays the local mirror.  To build from the published tree instead,
+# replace the first source line with
 #   "kernel::git+https://github.com/CerteKim/linux-a51.git#commit=${_ref_ksource}"
 source=(
     "kernel::git+file:///home/certe/aarch64-packages/linux-surface/kernel#commit=${_ref_ksource}"

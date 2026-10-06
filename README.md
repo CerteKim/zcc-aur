@@ -125,9 +125,11 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 * **`ra9530-dkms` 会自己清理旧模块副本**：包里的 `.install` 会先删掉
   `/lib/modules/<ver>` 下除 `updates/dkms/` 之外的 `ra9530-charger.ko`
   （`updates/` 的优先级高于 `extra/`，残留会让 `modprobe` 一直加载旧版）。
-* **GPL 与源码**：分发内核二进制时必须能提供对应源码。`packages/linux-mibook/PKGBUILD`
-  里的 `_ksource` 目前指向维护者本机的 git 镜像；把它推到 GitHub 后改成
-  `_ksource="https://github.com/CerteKim/linux-a51"` 再分发才符合 GPL。
+* **GPL 与源码**：分发内核二进制时必须能提供对应源码。内核源码已公开在
+  **<https://github.com/CerteKim/linux-a51>** 的 `xiaomi-mainline-panel2` 分支上
+  （就是 `packages/linux-mibook/PKGBUILD` 里 `_ref_ksource` 锁定的那个 commit），
+  GPL 义务因此已经满足。`_ksource` 保留指向本机镜像只是为了构建速度 ——
+  完整克隆这个内核仓库有 3+ GB，真要改也能改（PKGBUILD 注释里写了怎么改）。
 * **固件是厂商专有 blob**（从本机 Windows 分区提取）：仓库不把它们放进 git，
   是否把打好的二进制包公开到 Release 由你决定。
 * **驱动与内核版本**：`ra9530-dkms` 是 DKMS 包，会跟随已安装内核重建；
