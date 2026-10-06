@@ -26,8 +26,8 @@ post_install() {
     fi
     echo "    启用： sudo systemctl enable --now ra9530-charge-policy.service"
     echo "    看状态： journalctl -u ra9530-charge-policy -f"
-    echo "    （工具原先由上游 ra9530-mainline 的 install.sh 手工装；现在归本包，"
-    echo "      文件路径没变，仍是 /usr/local/bin/ra9530-*.sh）"
+    echo "    （这几个文件原先由上游 ra9530-mainline 的 install.sh 手工装；上游的"
+    echo "      tools/ 已经删掉，本包是唯一一份，路径没变，仍是 /usr/local/bin/ra9530-*）"
 }
 
 post_upgrade() {

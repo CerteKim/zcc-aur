@@ -45,9 +45,11 @@ post_install() {
     fi
 
     echo
-    echo "==> 充电策略（可选，需要笔已配对）"
-    echo "    驱动在 /sys/bus/i2c/devices/1-003b/ 下提供 enabled 开关；"
-    echo "    电量读数的用户态工具见 github.com/CerteKim/ra9530-mainline 的 tools/。"
+    echo "==> 充电策略与停靠闸门（由 xiaomi-book-12.4-config 提供，需要笔已配对）"
+    echo "    驱动在 /sys/bus/i2c/devices/1-003b/ 下提供 enabled 开关，以及 pen_present"
+    echo "    状态（跳变时 sysfs_notify()，守护进程阻塞等它而不是每秒轮询）。"
+    echo "    守护进程、BLE 电量脚本、systemd 单元和等待器都在那个包里，装它即可："
+    echo "        sudo pacman -S xiaomi-book-12.4-config"
 }
 
 post_upgrade() {

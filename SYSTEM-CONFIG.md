@@ -80,7 +80,7 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 
 | 原来 | 现在 |
 |---|---|
-| 上游 `ra9530-mainline` 的 `install.sh` 手工装 `/usr/local/bin/ra9530-{charge-policy,pen-battery}.sh` + `/etc/systemd/system/ra9530-charge-policy.service`（只做充电阈值） | `xiaomi-book-12.4-config` 装**同一路径**的脚本 + `/usr/lib/systemd/system/ra9530-charge-policy.service`；同一个守护进程现在多管一件事：**停靠闸门** |
+| 上游 `ra9530-mainline` 的 `install.sh` 手工装 `/usr/local/bin/ra9530-{charge-policy,pen-battery}.sh` + `/etc/systemd/system/ra9530-charge-policy.service`（只做充电阈值） | `xiaomi-book-12.4-config` 装**同一路径**的脚本 + `/usr/lib/systemd/system/ra9530-charge-policy.service`；同一个守护进程现在多管一件事：**停靠闸门**。上游那三个文件已删除（`ra9530-mainline` 现在只装驱动与设备树），所以这里就是唯一一份 |
 
 **现象**：磁吸位落在屏幕左侧偏上的感应区内，吸附中的笔被 HID-over-I2C 数字化仪的
 Stylus 集合（`0018:4858:121A` @ `i2c-0/0x4f`，即 `/dev/input/event10`）当成"悬停"

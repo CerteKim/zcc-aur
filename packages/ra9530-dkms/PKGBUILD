@@ -14,7 +14,7 @@
 
 pkgname=ra9530-dkms
 pkgver=1.0.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Renesas RA9530 wireless power transmitter — Xiaomi Book S 12.4 stylus charger (DKMS)"
 arch=('any')
 url="https://github.com/CerteKim/ra9530-mainline"

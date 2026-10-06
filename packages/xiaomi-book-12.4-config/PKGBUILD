@@ -23,7 +23,7 @@
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=6
+pkgrel=7
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, libinput quirk, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
