@@ -79,8 +79,32 @@ cp -a /boot/vmlinuz-linux-mibook "$STAGE/esp/"
 cp -a /boot/initramfs-linux-mibook.img "$STAGE/esp/"
 cp -a "/boot/$DTB_REL" "$STAGE/esp/$DTB_REL"
 
-# 启动菜单模板
-cp -f "$HERE/mibook-usb-grub.cfg" "$STAGE/esp/grub/grub.cfg"
+# 启动菜单：模板里的两个"内部系统"UUID 从当前系统现场取，避免换成写死的旧值
+#
+# 注意：这个脚本以普通用户运行，blkid 读不了块设备，所以走 /dev/disk/by-uuid
+# 的符号链接（全世界可读）。
+uuid_of() {
+    local real l
+    real=$(readlink -f "$1")
+    for l in /dev/disk/by-uuid/*; do
+        if [[ $(readlink -f "$l") == "$real" ]]; then
+            basename "$l"
+            return 0
+        fi
+    done
+    blkid -s UUID -o value "$1" 2>/dev/null
+}
+
+esp_dev=$(findmnt -no SOURCE /boot 2>/dev/null || true)
+root_dev=$(findmnt -no SOURCE / 2>/dev/null || true)
+internal_esp_uuid=$(uuid_of "$esp_dev" || true)
+internal_root_uuid=$(uuid_of "$root_dev" || true)
+[[ -n $internal_esp_uuid ]]  || { echo "取不到 /boot 的 UUID（$esp_dev）" >&2; exit 1; }
+[[ -n $internal_root_uuid ]] || { echo "取不到根文件系统的 UUID（$root_dev）" >&2; exit 1; }
+msg "内部 ESP UUID = $internal_esp_uuid，内部根 UUID = $internal_root_uuid"
+sed -e "s/@INTERNAL_ESP_UUID@/$internal_esp_uuid/" \
+    -e "s/@INTERNAL_ROOT_UUID@/$internal_root_uuid/" \
+    "$HERE/mibook-usb-grub.cfg" > "$STAGE/esp/grub/grub.cfg"
 
 # 内核模块也带上一份（live 系统起不来时，可以拿它做外部模块目录）
 msg "（可选）内核模块目录: /usr/lib/modules/$KVER -> 暂存树/rootfs-modules/"
