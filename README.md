@@ -111,12 +111,24 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 
 ## 注意事项
 
+* **从手工安装迁移过来时**：`xiaomi-book-12.4-firmware` 里的固件、`xiaomi-book-12.4-config`
+  里的 `/usr/local/bin/bluetooth-bdaddr.sh` 等，如果你之前已经手工放到同一路径，
+  pacman 会以 `exists in filesystem` 拒绝安装（磁盘上存在但不属于任何包的文件）。
+  用 `--overwrite` 放行即可：
+  ```sh
+  sudo pacman -U --overwrite '/usr/lib/firmware/qcom/*' \
+                 --overwrite '/usr/local/bin/bluetooth-bdaddr.sh' \
+                 xiaomi-book-12.4-firmware-*.pkg.tar.* xiaomi-book-12.4-config-*.pkg.tar.*
+  ```
+  如果之前用 `tools/install-bluetooth-bdaddr.sh` 往 `/etc/systemd/system`、
+  `/etc/udev/rules.d` 放过**另一份**，请删掉那些手工副本，避免与本包并存。
+* **`ra9530-dkms` 会自己清理旧模块副本**：包里的 `.install` 会先删掉
+  `/lib/modules/<ver>` 下除 `updates/dkms/` 之外的 `ra9530-charger.ko`
+  （`updates/` 的优先级高于 `extra/`，残留会让 `modprobe` 一直加载旧版）。
 * **GPL 与源码**：分发内核二进制时必须能提供对应源码。`packages/linux-mibook/PKGBUILD`
   里的 `_ksource` 目前指向维护者本机的 git 镜像；把它推到 GitHub 后改成
   `_ksource="https://github.com/CerteKim/linux-a51"` 再分发才符合 GPL。
-* **别和手工安装的副本混用**：`xiaomi-book-12.4-config` 会安装
-  `/usr/lib/systemd/system/bluetooth-bdaddr.service`、`/usr/lib/udev/rules.d/60-bluetooth-bdaddr.rules`
-  等；如果你之前用 `tools/install-bluetooth-bdaddr.sh` 手工放到 `/etc/...`，
-  请先删掉那些手工副本，避免两份并存。
+* **固件是厂商专有 blob**（从本机 Windows 分区提取）：仓库不把它们放进 git，
+  是否把打好的二进制包公开到 Release 由你决定。
 * **驱动与内核版本**：`ra9530-dkms` 是 DKMS 包，会跟随已安装内核重建；
   内核升级后无需手动干预（前提是新内核提供 `/lib/modules/<ver>/build`）。

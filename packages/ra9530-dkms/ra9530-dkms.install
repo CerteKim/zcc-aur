@@ -1,5 +1,21 @@
+purge_stale() {
+    # 之前用普通 modules_install 装过的副本（extra/ 或 updates/）优先级可能高于
+    # DKMS 的 updates/dkms/，残留会让 modprobe 一直加载旧模块 —— 这里先清掉。
+    local f
+    while IFS= read -r f; do
+        case "$f" in
+            */updates/dkms/*) ;;
+            *)
+                echo "    移除旧的模块副本: $f"
+                rm -f "$f"
+                ;;
+        esac
+    done < <(find "/lib/modules/$(uname -r)" -name 'ra9530-charger.ko*' 2>/dev/null)
+}
+
 post_install() {
     echo "==> 为当前内核构建并安装 RA9530 模块"
+    purge_stale
     if dkms install -m ra9530 -v 1.0 --force; then
         echo "    完成。检查：dmesg | grep -i ra9530"
     else
