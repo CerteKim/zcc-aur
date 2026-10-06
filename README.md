@@ -23,11 +23,18 @@ Server = https://github.com/CerteKim/zcc-aur/releases/latest/download
 ```sh
 sudo pacman -Syu
 sudo pacman -Ss zcc          # 看看有哪些
-sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config xiaomi-book-12.4-tools
+sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config \
+               xiaomi-book-12.4-tools xiaomi-book-12.4-sensors \
+               iio-sensor-proxy-ssc
 
 # 可选：只有在你想快速迭代面板驱动时才需要（见「面板驱动做成 DKMS」）
 sudo pacman -S panel-himax-hx83121a-dkms
 ```
+
+> 这台机器上原先有一批**手工**放进系统的配置（键盘打字禁触控板的 libinput quirk、
+> SLPI 传感器栈、打补丁的 iio-sensor-proxy、rmtfs 的 EFS 目录、固件的 initramfs
+> hook……）。它们现在都有对应的包了，逐条清单和删除顺序见 **[SYSTEM-CONFIG.md](SYSTEM-CONFIG.md)**。
+> 第一次从手工状态迁过来要放行已存在的文件，那里有现成的 `--overwrite` 命令。
 
 > **为什么是 TrustAll？** 目前 db 没有签名（本机没有 GPG 私钥）。
 > 如果你签了名（见下面「签名」），把 `SigLevel` 换成 `Required DatabaseOptional`
@@ -128,17 +135,23 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | **`linux-mibook`** | 内核（含 `linux-mibook-headers`）：mainline + 面板/音频/GPU 等本地补丁。**编译需 1~2 小时**，通常单独构建后用 `--collect` 收进仓库。 |
 | **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由 `linux-mibook` 的内核源码提供。 |
 | **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**（见下文）。 |
-| **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据。这些**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
-| **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）。 |
-| **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装等。 |
-| **`qrtr` `qmic` `pd-mapper` `rmtfs` `tqftpserv`** | linux-msm 的**高通用户态服务栈**：IPC 路由器（qrtr）、QMI 客户端库（qmic）、保护域映射（pd-mapper）、远端文件系统服务（rmtfs）、给 DSP 供固件的 TFTP 服务（tqftpserv）。PKGBUILD 沿用 Maximilian Luz 的版本（上游 BSD）。 |
+| **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据；**以及把固件放进 initramfs 的 mkinitcpio hook**。这些固件**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
+| **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）、GRUB 的 DTB 菜单项、**libinput 的键盘盖 quirks（打字时禁触控板）**。 |
+| **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装（修复用；正常路径已由 config 包直接安装）等。 |
+| **`xiaomi-book-12.4-sensors`** | **SLPI 传感器栈**：从源码编译的 `hexagonrpcd`（FastRPC 守护进程，上游 `linux-msm/hexagonrpc` v0.5.0）+ SSC 传感器**注册表**（从本机 Windows 提取）+ systemd 单元（含 `-R <registry root>`）+ FastRPC udev 规则 + `fastrpc` 用户/组。没有它，加速度计/光线传感器根本不会出现。 |
+| **`iio-sensor-proxy-ssc`** | 打过两个本地补丁的 `iio-sensor-proxy` 3.9（启动期 claim 竞态 + `ACCEL_MOUNT_MATRIX`）。用 `provides`/`conflicts` **替换**发行版那份 —— 装的时候 pacman 会问你要不要移除 `iio-sensor-proxy`，选是（mutter 的依赖由本包满足）。 |
+| **`qrtr` `qmic` `pd-mapper` `rmtfs` `tqftpserv`** | linux-msm 的**高通用户态服务栈**：IPC 路由器（qrtr）、QMI 客户端库（qmic）、保护域映射（pd-mapper）、远端文件系统服务（rmtfs）、给 DSP 供固件的 TFTP 服务（tqftpserv）。PKGBUILD 沿用 Maximilian Luz 的版本（上游 BSD）。`rmtfs` 本地改过一处：单元用 `-r -s -o /var/lib/rmtfs`（EFS 存目录而不是裸分区），原来靠 `/etc` 覆盖实现。 |
 | **`cdba`** | 高通的 Core Dump Bridge Agent（调试用）。构建前需先 `sudo pacman -S libftdi`（在 `extra` 里）。 |
 
-`maintainer/` 目录里是**不打包**的开发脚本（写死了维护者的检出路径），仅供仓库维护使用。
+`maintainer/` 目录里是**不打包**的开发脚本（写死了维护者的检出路径），仅供仓库维护使用；
+其中 `cleanup-stale-system-files.sh` 用来清掉手工时代遗留的、会盖住包内文件的副本。
+
+> 这台机器上"手工加进系统"的配置逐条清单（原来在哪、现在归谁、哪些能删）见
+> **[SYSTEM-CONFIG.md](SYSTEM-CONFIG.md)**。
 
 > 高通栈里 **`rmtfs-dummy` 未收录** ✗：它的 `0001-Redirect-file-lookups-to-var-lib-rmtfs.patch`
 > 已经跟不上上游（`rmtfs.service.in` 处 `patch does not apply`），`prepare()` 直接失败。
-> 真需要时得先把补丁更新到当前上游。
+> 它想做的事（EFS 走目录）现在由 `rmtfs` 包自己的单元完成。
 
 ### 面板驱动做成 DKMS（`panel-himax-hx83121a-dkms`）
 
@@ -198,6 +211,7 @@ DTS 用的是 `_nm` 变体，这两样永远不会被加载。整棵树 118 MB�
 ./scripts/build.sh                       # 构建 packages/ 下全部包 → 登记进 repo/
 ./scripts/build.sh ra9530-dkms           # 只构建一个
 ./scripts/sync-panel-dkms.sh             # 从内核树同步面板驱动（含出树编译体检）
+./scripts/make-sensors-registry-tarball.sh   # 传感器注册表 tarball（构建 sensors 包前必须）
 ./scripts/build.sh --collect ~/aarch64-packages/linux-surface   # 收编已构建好的内核包
 ./scripts/build.sh --list                # 看看 repo/ 里有什么
 
@@ -210,7 +224,11 @@ sudo pacman -S github-cli && gh auth login
 * `repo/` 里同名包只保留最新版本，每次重建 `zcc-aur.db`；
 * **每次发布必须上传 db + 全部包**（`latest/download` 只指向最新 Release，
   而客户端是按文件名去取的，所以每个 Release 都是完整快照）；
-* 内核包约 70 MB，Release 单个资源上限 2 GB，没问题。
+* 内核包约 70 MB，Release 单个资源上限 2 GB，没问题；
+* **两个包依赖本机生成的 tarball**（不进 git，厂商数据）：
+  `xiaomi-book-12.4-firmware`（`scripts/make-firmware-tarball.sh`）与
+  `xiaomi-book-12.4-sensors`（`scripts/make-sensors-registry-tarball.sh`）。
+  换机器构建时先跑对应脚本，并把打印出来的 sha256 填进 PKGBUILD。
 
 ### 签名（可选）
 
@@ -228,16 +246,16 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 ## 注意事项
 
 * **从手工安装迁移过来时**：`xiaomi-book-12.4-firmware` 里的固件、`xiaomi-book-12.4-config`
-  里的 `/usr/local/bin/bluetooth-bdaddr.sh` 等，如果你之前已经手工放到同一路径，
+  里的 `/usr/local/bin/bluetooth-bdaddr.sh`、`xiaomi-book-12.4-sensors` 的
+  `/usr/bin/hexagonrpcd` 与传感器注册表等，如果你之前已经手工放到同一路径，
   pacman 会以 `exists in filesystem` 拒绝安装（磁盘上存在但不属于任何包的文件）。
-  用 `--overwrite` 放行即可：
-  ```sh
-  sudo pacman -U --overwrite '/usr/lib/firmware/qcom/*' \
-                 --overwrite '/usr/local/bin/bluetooth-bdaddr.sh' \
-                 xiaomi-book-12.4-firmware-*.pkg.tar.* xiaomi-book-12.4-config-*.pkg.tar.*
-  ```
+  完整的 `--overwrite` 命令在 **[SYSTEM-CONFIG.md](SYSTEM-CONFIG.md)** 第 8 节；
+  装完再用 `maintainer/cleanup-stale-system-files.sh` 清掉会盖住包内文件的手工副本。
   如果之前用 `tools/install-bluetooth-bdaddr.sh` 往 `/etc/systemd/system`、
-  `/etc/udev/rules.d` 放过**另一份**，请删掉那些手工副本，避免与本包并存。
+  `/etc/udev/rules.d` 放过**另一份**，也请删掉，避免与本包并存。
+* **`iio-sensor-proxy-ssc` 会替换发行版的 `iio-sensor-proxy`**（`provides` +
+  `conflicts`）：安装时 pacman 会询问是否移除原包，选是。卸载本包后记得
+  `sudo pacman -S iio-sensor-proxy` 装回来（mutter 依赖它）。
 * **`ra9530-dkms` 会自己清理旧模块副本**：包里的 `.install` 会先删掉
   `/lib/modules/<ver>` 下除 `updates/dkms/` 之外的 `ra9530-charger.ko`
   （`updates/` 的优先级高于 `extra/`，残留会让 `modprobe` 一直加载旧版）。
