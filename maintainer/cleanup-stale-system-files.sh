@@ -75,6 +75,8 @@ remove_file /etc/systemd/system/hexagonrpcd-sdsp.service.d/root.conf \
     "-R <registry root> 已经写进包内单元，drop-in 不再需要"
 remove_file /etc/systemd/system/rmtfs.service \
     "rmtfs 包 (pkgrel>=2) 的单元就是 -r -s -o /var/lib/rmtfs"
+remove_file /etc/systemd/system/ra9530-charge-policy.service \
+    "手抄的单元会盖住 xiaomi-book-12.4-config 装到 /usr/lib/systemd/system/ 的那份（新版含停靠闸门）"
 remove_file /etc/systemd/system/iio-sensor-proxy.service.d/exec.conf \
     "iio-sensor-proxy-ssc 直接顶替 /usr/lib/iio-sensor-proxy，不再用 /usr/local 那份"
 remove_file /etc/initcpio/install/xiaomi-book124-firmware \
@@ -123,15 +125,11 @@ if [[ -d /var/lib/rmtfs ]]; then
     kept=$((kept + 1))
 fi
 if [[ -e /usr/local/bin/ra9530-charge-policy.sh ]]; then
-    echo "  /usr/local/bin/ra9530-*.sh 保留（充电策略与电量脚本，还没有对应的包）"
+    echo "  /usr/local/bin/ra9530-*.sh 保留（已由 xiaomi-book-12.4-config 按同一路径接管）"
     kept=$((kept + 1))
 fi
 if [[ -e /etc/sysctl.d/99-zram-tuning.conf ]]; then
     echo "  zram 调优保留（按维护者意愿不打包）"
-    kept=$((kept + 1))
-fi
-if [[ -e /etc/systemd/system/ra9530-charge-policy.service ]]; then
-    echo "  ra9530-charge-policy.service 保留（同上）"
     kept=$((kept + 1))
 fi
 if [[ -e ${SUDO_USER:+/home/$SUDO_USER}/.config/autostart/mutter-accelerometer-claim.desktop \

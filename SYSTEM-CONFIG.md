@@ -64,7 +64,9 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 > 你要不要移除 `iio-sensor-proxy`，选是即可（mutter 的依赖由 provides 满足）。
 > 卸载本包后要装回发行版：`sudo pacman -S iio-sensor-proxy`。
 
-## 3. 输入：打字时禁用触控板
+## 3. 输入：打字时禁用触控板 / 笔停靠时别搬光标
+
+### 3.1 打字时禁用触控板（DWT）
 
 | 原来 | 现在 |
 |---|---|
@@ -73,6 +75,35 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 文件内容不变（键盘盖 `2717:5032` 是键盘+触控板同一个 USB 复合设备，udev 只给触控板
 打了 `internal`，键盘那半边没有 → libinput 的 `tp_want_dwt()` 不配对 → GNOME 那个
 开关无效）。tools 包里的安装脚本仍保留，作为修复/核对工具。
+
+### 3.2 笔吸在磁吸位上时屏蔽笔输入
+
+| 原来 | 现在 |
+|---|---|
+| 上游 `ra9530-mainline` 的 `install.sh` 手工装 `/usr/local/bin/ra9530-{charge-policy,pen-battery}.sh` + `/etc/systemd/system/ra9530-charge-policy.service`（只做充电阈值） | `xiaomi-book-12.4-config` 装**同一路径**的脚本 + `/usr/lib/systemd/system/ra9530-charge-policy.service`；同一个守护进程现在多管一件事：**停靠闸门** |
+
+**现象**：磁吸位落在屏幕左侧偏上的感应区内，吸附中的笔被 HID-over-I2C 数字化仪的
+Stylus 集合（`0018:4858:121A` @ `i2c-0/0x4f`，即 `/dev/input/event10`）当成"悬停"
+反复上报；udev 把它标成 `ID_INPUT_TABLET`，而 GNOME/mutter 对 tablet tool 是**绝对
+定位并直接 warp 光标** —— 于是光标一次次被拽到磁吸位那个点（换算到 2560x1600 桌面
+约 `(103, 515)`，左边缘、距顶 32%）。
+
+**实测取证**（停靠时）：`event10` 30 秒内有多次 `BTN_TOOL_PEN` 1→0 的进出，坐标恒定
+在原生 `(≈10850, 1030)`；同一时间窗里触摸屏 `event9` 与触控板 `event4` **全程 0 事件**
+—— 触摸在 Wayland 下不搬光标，所以这个现象只能是笔。数字化仪 235 秒里只有 20 秒有
+活动（12~49 次/秒的突发），与"偶尔闪过去"的观感一致。
+
+**做法**：`/sys/bus/i2c/devices/1-003b/pen_present`（驱动自己的吸附检测）为 1 时写
+`/sys/class/input/inputN/inhibited=1`，取下时写 0。用内核这个属性而不是 EVIOCGRAB 的
+原因：`input_get_disposition()` 里中心化过滤，不会关掉 gnome-shell 已打开的 evdev fd；
+抑制时会正经把 `BTN_TOOL_PEN` 放开，而 grab 会让 libinput 一直以为笔在 proximity，
+连 stylus-touch 仲裁一起挂着。`inputN` 编号每次开机可能变，所以按设备名找节点。
+
+**已知延迟**：驱动的 `chg->pen_present` 只在 5 秒一次的 `ra9530_monitor_work()` 里更新
+（IRQ 路径不更新），所以闸门进出最多滞后约 5 秒。想更快要在驱动侧改。
+
+`/etc/systemd/system/ra9530-charge-policy.service` 这份手工单元**必须删掉**：`/etc`
+会盖住包内的 `/usr/lib/systemd/system/` 那份，于是新装的停靠闸门逻辑根本不生效。
 
 ## 4. 启动：固件进 initramfs
 
@@ -119,6 +150,7 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 | `/etc/systemd/system/iio-sensor-proxy.service.d/{exec,debug}.conf` | 补丁版直接顶替发行版二进制；debug.conf 是调试残留 |
 | `/usr/local/lib/iio-sensor-proxy/`、`/usr/local/share/iio-sensor-proxy/` | 同一件事的第二份拷贝 |
 | `/etc/systemd/system/rmtfs.service` | 已折进 `rmtfs` 包 |
+| `/etc/systemd/system/ra9530-charge-policy.service` | 手工时代那份；会盖住 `xiaomi-book-12.4-config` 装到 `/usr/lib/systemd/system/` 的同名单元（新版的停靠闸门就不生效了）。删之前先 `systemctl disable --now` |
 | `/etc/udev/rules.d/9{0,1,2}-fastrpc*.rules` | 会盖住包里的 `/usr/lib/udev/rules.d/` 同名文件（内容相同，留着容易搞不清哪份生效） |
 | `/etc/initcpio/install/xiaomi-book124-firmware` | 已由 firmware 包提供 |
 | `/etc/modprobe.d/vdec-probe.conf` | VPU 探针调试留的 `blacklist qcom-iris` |
@@ -142,6 +174,7 @@ sudo pacman -U --overwrite '/usr/bin/hexagonrpcd' \
                --overwrite '/usr/lib/firmware/qcom/*' \
                --overwrite '/usr/lib/initcpio/install/xiaomi-book124-firmware' \
                --overwrite '/usr/lib/systemd/system/rmtfs.service' \
+               --overwrite '/usr/local/bin/ra9530-*.sh' \
                --overwrite '/usr/lib/iio-sensor-proxy' \
                ~/zcc-aur/repo/xiaomi-book-12.4-sensors-*.pkg.tar.* \
                ~/zcc-aur/repo/iio-sensor-proxy-ssc-*.pkg.tar.* \
@@ -161,4 +194,6 @@ modinfo -n iio-sensor-proxy          # 不存在也没关系：它现在是 /usr
 systemctl status hexagonrpcd-sdsp.service
 monitor-sensor                       # 转动设备，orientation 应跟着变
 libinput list-devices | grep -A3 -i touchpad   # 打字时禁用触控板开关应生效
+systemctl status ra9530-charge-policy.service   # 笔策略守护（充电阈值 + 停靠闸门）
+cat /sys/class/input/input*/inhibited           # 笔吸着时 Stylus 那个应为 1、触摸屏为 0
 ```

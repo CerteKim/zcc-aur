@@ -9,23 +9,28 @@
 #   * a libinput quirk that tags the detachable keyboard as internal, without
 #     which "disable touchpad while typing" does nothing (see the file itself;
 #     the cover is one USB composite device providing both keyboard and touchpad)
+#   * the RA9530 stylus policy daemon: BLE-battery charge thresholds, plus a gate
+#     that mutes the digitizer's pen collection while the pen sits on its magnetic
+#     dock.  Without the gate the docked pen is reported as "hovering" at the dock
+#     position and mutter warps the cursor there (left edge, above centre)
 #
 # It used to carry prebuilt panel device trees; those were bring-up snapshots and
 # are superseded by the kernel source.  See the config package's history.
 #
 # Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook",
-# the stylus charger driver in "ra9530-dkms" and the SLPI sensor stack in
-# "xiaomi-book-12.4-sensors".
+# the stylus charger driver in "ra9530-dkms", its userspace policy daemon here,
+# and the SLPI sensor stack in "xiaomi-book-12.4-sensors".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=4
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, libinput quirk"
+pkgrel=5
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, libinput quirk, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
 depends=('alsa-ucm-conf')
-optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig'
+optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig; ra9530-pen-battery.sh needs bluetoothctl'
+            'ra9530-dkms: ra9530-charge-policy.service drives its pen sysfs attributes'
             'grub: the /etc/grub.d snippet only matters with GRUB'
             'libinput: the /etc/libinput quirk only matters with libinput (GNOME)')
 backup=('etc/conf.d/bluetooth-bdaddr'
@@ -39,6 +44,9 @@ source=(
     'bluetooth-bdaddr.service'
     'bluetooth-bdaddr.sh'
     'local-overrides.quirks'
+    'ra9530-charge-policy.service'
+    'ra9530-charge-policy.sh'
+    'ra9530-pen-battery.sh'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
 )
@@ -49,6 +57,9 @@ sha256sums=(
     'd1c942bb46110fb92a13b90aa067d0162c869328e97abdcfb6f42dad73ae0349'
     'e594356e6d37fca26b859306425264d57ad2c104a31db3fb5d19581c771de762'
     '4de4c5e866369f528e20426be5c9a1b90ca57d330eee7c434f547a8de07d1d3f'
+    '6701cf36c5658c20922060e0f33890f37f9997f6c5b0a5300da508e428ba149b'
+    '6c49b7816e03e825e8cd5cde2e8409a03d8778aee0e947f09cabcf3bb4b3355a'
+    '3bece361b2b0b62772d7eb3768c0cbe37372a2fd20498559dfcfc31079fd160b'
     '03c58f8e9b3e0b1536cad33c1972b63de46efbb757333c97bd7cce363746f00e'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
 )
@@ -73,4 +84,13 @@ package() {
 
     # GRUB: must stay executable, grub-mkconfig runs the scripts in /etc/grub.d
     install -Dm755 09_xiaomi_book_dtb "$pkgdir/etc/grub.d/09_xiaomi_book_dtb"
+
+    # RA9530 stylus: one daemon for the charge thresholds and the dock gate.
+    # It lives in /usr/local/bin like bluetooth-bdaddr.sh (the unit refers to that
+    # path), and ra9530-charge-policy.sh looks for ra9530-pen-battery.sh next to
+    # itself, so both have to stay in the same directory.
+    install -Dm755 ra9530-charge-policy.sh  "$pkgdir/usr/local/bin/ra9530-charge-policy.sh"
+    install -Dm755 ra9530-pen-battery.sh    "$pkgdir/usr/local/bin/ra9530-pen-battery.sh"
+    install -Dm644 ra9530-charge-policy.service \
+        "$pkgdir/usr/lib/systemd/system/ra9530-charge-policy.service"
 }

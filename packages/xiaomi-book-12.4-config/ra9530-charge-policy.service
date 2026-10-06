@@ -1,0 +1,28 @@
+[Unit]
+Description=RA9530 stylus policy (charge thresholds + mute the pen while it is docked)
+Documentation=file:/usr/local/bin/ra9530-charge-policy.sh
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+# 阈值与周期：HIGH=85 到此停充 / LOW=75 到此恢复 / INTERVAL=120 充电检查周期（秒）
+# TICK=1 停靠闸门周期（秒）：笔吸在磁吸位时屏蔽笔输入，否则数字化仪会把停靠中的
+#        笔当成"悬停"上报，GNOME/mutter 直接把光标拽到磁吸位那个点
+Environment=HIGH=85
+Environment=LOW=75
+Environment=INTERVAL=120
+Environment=TICK=1
+ExecStart=/usr/local/bin/ra9530-charge-policy.sh
+# 进程被 SIGKILL 时脚本里的 trap 不会跑，靠这条兜底把笔输入放开
+ExecStopPost=/usr/local/bin/ra9530-charge-policy.sh --release
+Restart=always
+RestartSec=30
+# 只读蓝牙 + 写两个 sysfs 属性（enabled / inhibited），权限收紧
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

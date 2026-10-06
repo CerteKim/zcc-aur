@@ -15,6 +15,19 @@ post_install() {
     echo "    建议同时停用会自动生成【无 DTB】菜单项的 10_linux："
     echo "        sudo chmod -x /etc/grub.d/10_linux"
 
+    echo
+    echo "==> RA9530 笔策略守护（充电阈值 + 停靠时屏蔽笔输入）"
+    if [ -e /etc/systemd/system/ra9530-charge-policy.service ]; then
+        echo "    !! /etc/systemd/system/ra9530-charge-policy.service 还在（手工时代的那份）"
+        echo "       /etc 会盖住本包装到 /usr/lib/systemd/system/ 的同名单元。请先："
+        echo "           sudo systemctl disable --now ra9530-charge-policy.service"
+        echo "           sudo rm /etc/systemd/system/ra9530-charge-policy.service"
+        echo "           sudo systemctl daemon-reload"
+    fi
+    echo "    启用： sudo systemctl enable --now ra9530-charge-policy.service"
+    echo "    看状态： journalctl -u ra9530-charge-policy -f"
+    echo "    （工具原先由上游 ra9530-mainline 的 install.sh 手工装；现在归本包，"
+    echo "      文件路径没变，仍是 /usr/local/bin/ra9530-*.sh）"
 }
 
 post_upgrade() {

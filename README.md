@@ -50,6 +50,19 @@ sudo pacman -S panel-himax-hx83121a-dkms
    bluetoothctl -> agent on; default-agent; scan on; pair <笔地址>; trust <笔地址>
    ```
 
+**笔策略守护**（`ra9530-charge-policy.service`，由 `xiaomi-book-12.4-config` 装）
+一个进程管两件事：按 BLE 电量做充电阈值（85/75%），以及**笔吸在磁吸位上时屏蔽
+数字化仪上报的笔事件** —— 否则停靠中的笔会被当成"悬停"，GNOME 直接把光标拽到
+磁吸位（屏幕左边缘、偏上）。装上就能用：
+
+   ```sh
+   sudo systemctl enable --now ra9530-charge-policy.service
+   journalctl -u ra9530-charge-policy -f
+   ```
+
+> 手工时代从上游 `ra9530-mainline` 的 `install.sh` 装过的话，`/etc/systemd/system/`
+> 里那份同名单元会**盖住包内的**，先删掉它再启用（包的 `.install` 会提示）。
+
 ### ⚠️ GRUB：本机必须显式传 device tree
 
 Arch Linux ARM 的 `grub` 包**完全没有设备树支持**：`/etc/grub.d/` 与
@@ -136,7 +149,7 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由 `linux-mibook` 的内核源码提供。 |
 | **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**（见下文）。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据；**以及把固件放进 initramfs 的 mkinitcpio hook**。这些固件**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
-| **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）、GRUB 的 DTB 菜单项、**libinput 的键盘盖 quirks（打字时禁触控板）**。 |
+| **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）、GRUB 的 DTB 菜单项、**libinput 的键盘盖 quirks（打字时禁触控板）**、**RA9530 笔策略守护**（充电阈值 + 停靠时屏蔽笔输入，`ra9530-charge-policy.service`）。 |
 | **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装（修复用；正常路径已由 config 包直接安装）等。 |
 | **`xiaomi-book-12.4-sensors`** | **SLPI 传感器栈**：从源码编译的 `hexagonrpcd`（FastRPC 守护进程，上游 `linux-msm/hexagonrpc` v0.5.0）+ SSC 传感器**注册表**（从本机 Windows 提取）+ systemd 单元（含 `-R <registry root>`）+ FastRPC udev 规则 + `fastrpc` 用户/组。没有它，加速度计/光线传感器根本不会出现。 |
 | **`iio-sensor-proxy-ssc`** | 打过两个本地补丁的 `iio-sensor-proxy` 3.9（启动期 claim 竞态 + `ACCEL_MOUNT_MATRIX`）。用 `provides`/`conflicts` **替换**发行版那份 —— 装的时候 pacman 会问你要不要移除 `iio-sensor-proxy`，选是（mutter 的依赖由本包满足）。 |
