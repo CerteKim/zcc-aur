@@ -257,7 +257,8 @@ if [[ $LIVE == yes ]]; then
     awk '/^\[aur\]/{skip=1} /^\[/{if ($0 !~ /^\[aur\]/) skip=0} !skip' /etc/pacman.conf > "$tmppac"
     run install -Dm644 "$tmppac" "$ROOTMNT/etc/pacman.conf"
     run install -Dm644 /etc/pacman.d/mirrorlist "$ROOTMNT/etc/pacman.d/mirrorlist"
-    run pacstrap -C "$tmppac" "$ROOTMNT" base
+    # -c：用 host 的包缓存，别往 U 盘上再下一份（重跑时也就快得多）
+    run pacstrap -c -C "$tmppac" "$ROOTMNT" base
 
     msg "拷本仓库的包进 live 系统（/var/cache/mibook，装到内部磁盘时要用）"
     run mkdir -p "$ROOTMNT/var/cache/mibook"
@@ -289,7 +290,11 @@ EOF
         pacman -Sy --noconfirm
 
         # live 系统本身要用的（DKMS 那两个包只留在 /var/cache/mibook，供装到内部磁盘）
-        pacman -U --noconfirm \
+        #
+        # --overwrite /boot/*：p1（就是 live 系统的 /boot）上已经有我们放好的
+        # vmlinuz-linux-mibook、initramfs 和 DTB，而它们不属于任何包 —— 不覆盖的话
+        # pacman 会以 "exists in filesystem" 直接拒绝安装整个内核包。
+        pacman -U --noconfirm --overwrite '/boot/*' \
             /var/cache/mibook/linux-mibook-*.pkg.tar.* \
             /var/cache/mibook/xiaomi-book-12.4-*.pkg.tar.* \
             /var/cache/mibook/iio-sensor-proxy-ssc-*.pkg.tar.* \
