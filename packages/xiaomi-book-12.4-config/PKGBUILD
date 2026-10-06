@@ -23,14 +23,15 @@
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, libinput quirk, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
 depends=('alsa-ucm-conf')
 optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig; ra9530-pen-battery.sh needs bluetoothctl'
-            'ra9530-dkms: ra9530-charge-policy.service drives its pen sysfs attributes'
+            'python: ra9530-charge-policy waits for the pen-dock event instead of polling for it'
+            'ra9530-dkms: ra9530-charge-policy.service drives its pen sysfs attributes (>=1.0.3 notifies them)'
             'grub: the /etc/grub.d snippet only matters with GRUB'
             'libinput: the /etc/libinput quirk only matters with libinput (GNOME)')
 backup=('etc/conf.d/bluetooth-bdaddr'
@@ -46,6 +47,7 @@ source=(
     'local-overrides.quirks'
     'ra9530-charge-policy.service'
     'ra9530-charge-policy.sh'
+    'ra9530-charge-policy-wait.py'
     'ra9530-pen-battery.sh'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
@@ -57,8 +59,9 @@ sha256sums=(
     'd1c942bb46110fb92a13b90aa067d0162c869328e97abdcfb6f42dad73ae0349'
     'e594356e6d37fca26b859306425264d57ad2c104a31db3fb5d19581c771de762'
     '4de4c5e866369f528e20426be5c9a1b90ca57d330eee7c434f547a8de07d1d3f'
-    '6701cf36c5658c20922060e0f33890f37f9997f6c5b0a5300da508e428ba149b'
-    '94a9366d63a77f3f154fd1f87ae3df6e8276acf6a24c6e5822dff1e348b99f27'
+    '46a751ec3e77e32eb2dc7c28119353771cf814c2d14a85fbded3f63433607fd3'
+    'b20d663f994c33a632a8204614acd75bc70556bfabaad6d29442d49c8c046a5c'
+    'cdb45487e22a67baa253f13da50cf7f259db83f5b0d675ae453a21716db56de6'
     '3bece361b2b0b62772d7eb3768c0cbe37372a2fd20498559dfcfc31079fd160b'
     '03c58f8e9b3e0b1536cad33c1972b63de46efbb757333c97bd7cce363746f00e'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
@@ -90,6 +93,8 @@ package() {
     # path), and ra9530-charge-policy.sh looks for ra9530-pen-battery.sh next to
     # itself, so both have to stay in the same directory.
     install -Dm755 ra9530-charge-policy.sh  "$pkgdir/usr/local/bin/ra9530-charge-policy.sh"
+    install -Dm755 ra9530-charge-policy-wait.py \
+        "$pkgdir/usr/local/bin/ra9530-charge-policy-wait.py"
     install -Dm755 ra9530-pen-battery.sh    "$pkgdir/usr/local/bin/ra9530-pen-battery.sh"
     install -Dm644 ra9530-charge-policy.service \
         "$pkgdir/usr/lib/systemd/system/ra9530-charge-policy.service"

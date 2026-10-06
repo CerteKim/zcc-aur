@@ -42,13 +42,22 @@
 #   的进出最多滞后约 5 秒。想更快得在驱动侧把状态更新挪进 IRQ 路径，或者给
 #   pen_present 加 sysfs_notify()。
 #
+#   现在两者都做了（驱动 >= 1.0.3）：两个霍尔脚各有一个双边沿中断，跳变时
+#   ra9530_pen_update() 立刻回写 pen_present 并 sysfs_notify()。所以闸门改成
+#   **阻塞等通知**，不再每秒读一次：
+#     python3 ra9530-charge-policy-wait.py <pen_present> | apply_gate...
+#   等待器只请求 POLLPRI（见它自己的注释：请求 POLLIN 会让 poll 立刻返回），
+#   唤醒后 seek+read 重新武装。没有 python3 时退回 TICK 秒对账一次（用 bash 内建
+#   read -t，不 fork）；即使驱动是旧版，TICK=1 也保证不比以前慢。
+#
 # 用法:
 #   ./ra9530-charge-policy.sh                 # 前台跑（Ctrl-C 停）
 #   HIGH=85 LOW=75 INTERVAL=120 ./ra9530-charge-policy.sh
 #   sudo systemctl enable --now ra9530-charge-policy   # 用附带的 service
 #   ./ra9530-charge-policy.sh --release       # 只放开笔输入（单元的 ExecStopPost）
 #
-# 依赖：ra9530-pen-battery.sh（读电量）、RA9530 驱动（enabled / pen_present 属性）
+# 依赖：ra9530-pen-battery.sh（读电量）、RA9530 驱动（enabled / pen_present 属性）、
+#       可选 python3（事件驱动等待器；没有就退回轮询）
 
 set -u
 
@@ -62,7 +71,10 @@ NAME=${NAME:-Xiaomi Smart Pen}
 HIGH=${HIGH:-85}
 LOW=${LOW:-75}
 INTERVAL=${INTERVAL:-120}      # 充电策略周期（秒）
-TICK=${TICK:-1}                # 停靠闸门周期（秒）
+TICK=${TICK:-1}                # 停靠闸门兜底对账周期（秒）
+WAITER=${WAITER:-$HERE/ra9530-charge-policy-wait.py}
+RUNDIR=${RUNDIR:-${RUNTIME_DIRECTORY:-/tmp}}   # systemd 会设 RUNTIME_DIRECTORY
+EVENTS=${EVENTS:-$RUNDIR/ra9530-pen-events}
 
 log() { printf '%(%F %T)T [policy] %s\n' -1 "$*"; }
 
@@ -147,8 +159,39 @@ apply_gate() {
     fi
 }
 
+# 事件等待器把每个通知写进一个 fifo，这里用内建 read -t 等它：等事件或 TICK 秒
+# 超时都不 fork。而且 bash 在 read -t 上能被信号打断（trap 立刻执行）——前台管道
+# 做不到这点（试过：trap 会被推迟到管道结束，结果退出时笔没放开、等待器还留着）。
 gate_loop() {
     apply_gate             # 启动就落实当前状态：开机时笔往往已经吸着
+
+    rm -f "$EVENTS"
+    if [[ -f "$WAITER" ]] && command -v python3 >/dev/null 2>&1 &&
+       mkfifo "$EVENTS" 2>/dev/null; then
+        local t0 line
+        exec 9<>"$EVENTS"      # 读写都握着，所以 read 永远看不到 EOF
+        while :; do
+            t0=$SECONDS
+            python3 "$WAITER" "$PEN_PRESENT" >&9 &
+            WAITER_PID=$!
+            log "停靠闸门：等 pen_present 的通知（兜底每 ${TICK}s 对账一次）"
+            while kill -0 "$WAITER_PID" 2>/dev/null; do
+                apply_gate
+                read -t "$TICK" -r -u 9 line
+            done
+            wait "$WAITER_PID" 2>/dev/null
+            WAITER_PID=""
+            apply_gate
+            if (( SECONDS - t0 < 2 )); then
+                log "事件等待器起不来，5 秒后重试（期间靠兜底对账）"
+                sleep 5
+            else
+                sleep "$TICK"
+            fi
+        done
+    fi
+
+    log "没有 python3 / 等待器 / fifo：停靠闸门退回每 ${TICK}s 对账"
     while :; do
         sleep "$TICK"
         apply_gate
@@ -205,14 +248,19 @@ charge_loop() {
 # ---------------------------------------------------------------- main
 
 CHARGE_PID=""
+WAITER_PID=""
 
 cleanup() {
+    local p
     trap - INT TERM EXIT
-    if [[ -n "$CHARGE_PID" ]]; then
-        kill "$CHARGE_PID" 2>/dev/null
-        wait "$CHARGE_PID" 2>/dev/null
-    fi
+    for p in "$CHARGE_PID" "$WAITER_PID"; do
+        if [[ -n "$p" ]]; then
+            kill "$p" 2>/dev/null
+            wait "$p" 2>/dev/null
+        fi
+    done
     release_gate "$GATE_PATH"
+    rm -f "$EVENTS" 2>/dev/null
     log "退出"
     exit 0
 }

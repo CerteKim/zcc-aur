@@ -7,12 +7,16 @@ Wants=bluetooth.service
 [Service]
 Type=simple
 # 阈值与周期：HIGH=85 到此停充 / LOW=75 到此恢复 / INTERVAL=120 充电检查周期（秒）
-# TICK=1 停靠闸门周期（秒）：笔吸在磁吸位时屏蔽笔输入，否则数字化仪会把停靠中的
-#        笔当成"悬停"上报，GNOME/mutter 直接把光标拽到磁吸位那个点
+# TICK=1 停靠闸门兜底对账周期（秒）：笔吸在磁吸位时屏蔽笔输入，否则数字化仪会把
+#        停靠中的笔当成"悬停"上报，GNOME/mutter 直接把光标拽到磁吸位那个点。
+#        驱动 >=1.0.3 会在霍尔跳变时 sysfs_notify()，所以正常路径是被通知唤醒的，
+#        TICK 只是兜底（没有 python3、或驱动还是旧版时）
 Environment=HIGH=85
 Environment=LOW=75
 Environment=INTERVAL=120
 Environment=TICK=1
+# 事件等待器的 fifo 放这里，脚本读 $RUNTIME_DIRECTORY
+RuntimeDirectory=ra9530-charge-policy
 ExecStart=/usr/local/bin/ra9530-charge-policy.sh
 # 进程被 SIGKILL 时脚本里的 trap 不会跑，靠这条兜底把笔输入放开
 ExecStopPost=/usr/local/bin/ra9530-charge-policy.sh --release

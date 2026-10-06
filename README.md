@@ -60,6 +60,11 @@ sudo pacman -S panel-himax-hx83121a-dkms
    journalctl -u ra9530-charge-policy -f
    ```
 
+停靠闸门是**事件驱动**的：`ra9530-dkms` **>= 1.0.3** 会在霍尔跳变时
+`sysfs_notify()` 那个属性，守护进程用附带的小等待器阻塞等它（实测端到端
+3~6 ms，旧版 1 Hz 轮询是 0.5~1 s）。等待器需要 `python3`（`optdepends`）；
+没有 python3、或驱动还是旧版，守护会自动退回 1 秒一次的兜底对账，功能不受影响。
+
 > 手工时代从上游 `ra9530-mainline` 的 `install.sh` 装过的话，`/etc/systemd/system/`
 > 里那份同名单元会**盖住包内的**，先删掉它再启用（包的 `.install` 会提示）。
 

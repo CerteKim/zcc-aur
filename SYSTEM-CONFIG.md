@@ -99,8 +99,25 @@ Stylus 集合（`0018:4858:121A` @ `i2c-0/0x4f`，即 `/dev/input/event10`）当
 抑制时会正经把 `BTN_TOOL_PEN` 放开，而 grab 会让 libinput 一直以为笔在 proximity，
 连 stylus-touch 仲裁一起挂着。`inputN` 编号每次开机可能变，所以按设备名找节点。
 
-**已知延迟**：驱动的 `chg->pen_present` 只在 5 秒一次的 `ra9530_monitor_work()` 里更新
-（IRQ 路径不更新），所以闸门进出最多滞后约 5 秒。想更快要在驱动侧改。
+**事件驱动（驱动 >= 1.0.3 + 可选 python3）**：守护进程不再每秒读一次属性，而是**阻塞等
+通知**。驱动把那两个霍尔脚各申请了一个双边沿中断，跳变时先回写 `pen_present` 再
+`sysfs_notify()`；kernfs 的通知既唤醒 `poll()` 也 kick fsnotify，所以等的一方可以只请求
+`POLLPRI`（**不能带 POLLIN** —— sysfs 属性永远返回 `DEFAULT_POLLMASK`，带了就立刻返回，
+见 `kernfs_generic_poll()` 上面那段内核注释；唤醒后要 seek+read 重新武装）。
+`ra9530-charge-policy-wait.py` 就是干这个的（bash 没有 `poll()`），它的输出经一个 fifo
+喂给守护进程的 `read -t`：**有事件就是毫秒级，没事件每 TICK 秒兜底对账一次**。
+
+实测端到端（journal 微秒时间戳对齐驱动跳变与守护动作）：取下/吸回各两次都是
+**3.4 / 5.4 / 4.8 / 5.8 ms**；同一个守护的旧版（1 Hz 轮询）是 505~1008 ms。
+CPU 方面旧版 1 Hz 轮询约 1.35% 一个核（每拍一次 `sleep` fork + 两次 `$(cat)` fork），
+新版空闲时只剩阻塞的 `read -t`（内建，不 fork）。
+
+驱动里还有一个 1 秒的 `detect_poll` 兜底：边沿是边沿触发的，挂起期间会丢；笔停在
+磁吸场临界位置时霍尔也会在两个电平之间来回。5 秒的 monitor 对"停靠时屏蔽笔输入"
+太粗，所以驱动自己每秒读那两个 GPIO（两次寄存器读，且只在状态真变时才 notify）。
+
+**没有驱动 >= 1.0.3、或没有 python3 时**：守护自动退回每 TICK 秒（默认 1 秒）对账一次，
+也就是旧行为，不会失效。
 
 `/etc/systemd/system/ra9530-charge-policy.service` 这份手工单元**必须删掉**：`/etc`
 会盖住包内的 `/usr/lib/systemd/system/` 那份，于是新装的停靠闸门逻辑根本不生效。
