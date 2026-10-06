@@ -1,7 +1,7 @@
 MODNAME=ra9530
 # 兜底版本号：正常情况下从 pacman 传给脚本函数的参数里取（见下），
 # 这里只是以防万一。改版本时 dkms.conf / PKGBUILD / 这一行三处保持一致。
-FALLBACK_VER=1.0.2
+FALLBACK_VER=1.0.3
 
 purge_stale() {
     # 之前用普通 modules_install 装过的副本（extra/ 或 updates/）优先级可能高于
