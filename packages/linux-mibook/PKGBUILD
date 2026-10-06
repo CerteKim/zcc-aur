@@ -7,13 +7,14 @@ pkgver="6.18.2"
 pkgrel="1"
 
 _pkgdesc="Linux Xiaomi Book S 12.4"
-_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb")
+_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb"
+       "qcom/sc8180x-xiaomi-book-12.4-oc.dtb")
 
 arch=("aarch64")
 options=("!strip")
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 
-# ece7511 is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
+# f52de89 is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
 # backlight, power key, volume keys, higher GPU DVFS states) it keeps the user's
 # WSA881x "PA Volume" across DAPM power-up, drops the S24_LE speaker-backend
 # quirk that was costing 20-48 dB, and (now that the level is right) caps the
@@ -23,12 +24,14 @@ makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 # It now also describes the RA9530 stylus charger on i2c7 (0x3b) and drops that
 # bus to the 400 kHz the firmware declares, so a kernel built from this commit
 # produces a DTB the ra9530-dkms driver binds to without any post-install
-# device tree patching.
+# device tree patching.  Both device trees the local GRUB entries boot (the
+# plain one and "oc" — the vendor GPU frequency variant, not an overclock) are
+# built from the shared .dtsi and therefore both carry it.
 #
 # pkgrel is deliberately left at 1: bumping it would change the release string
 # from 6.18.2-1-mibook+ and invalidate the modules already built against the
 # installed kernel.
-_ref_ksource="ece7511eb4f6cd787210d86965973d027e6e47cc"
+_ref_ksource="f52de895a47d97711f135f61356906ceedccb9d1"
 _ref_config_base="e36ada85974d22c05d1442a4ac47f958c7fa8e15"
 
 # The branch is public at github.com/CerteKim/linux-a51 (the GPL source for the
