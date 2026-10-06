@@ -91,6 +91,40 @@ GRUB，机器就总能起来 ✓。
 `\EFI\Boot\bootaa64.efi` ✓；进系统后 `efibootmgr -v` 查看、
 `efibootmgr -b <号> -B` 删坏项、`efibootmgr -o 3,0` 调顺序 ✓。
 
+### 两套 GRUB 并存（A/B 测试）
+
+本机现在这个 GRUB **不是 ALARM 包构建的核**，而是从 linux-surface 的
+Surface Pro X 试验镜像里手工拷来的（245760 字节）：它内嵌了一份 Qualcomm 设备树
+（二进制里 `qcom` 出现 251 次，还有成堆的 DT 节点/属性名），是社区为"固件不提供
+DTB"的机器打的补丁版。ALARM 的 `grub-install` 生成的核只有 159744 字节、**没有任何
+DT 内容**（787 个字符串），两者共用同一套模块（245/245 与 `grub` 包完全一致，其中
+`fdt.mod` 提供 `devicetree` 命令）。
+
+| 文件 | 大小 | 身份 |
+|---|---|---|
+| `/boot/EFI/arch/grubaa64.efi` | 245760 | Surface Pro X 镜像的核（**内嵌 DTB**，当前可用） |
+| `/boot/EFI/Boot/bootaa64.efi` | 245760 | 同上（fallback 路径，保险） |
+| `/boot/grub/arm64-efi/core.efi` | 159744 | ALARM `grub-install` 生成的核（**无 DT**） |
+| `/boot/EFI/Boot/bootaa64.efi.bak` | 159744 | 同上（7-15 的旧副本） |
+
+想验证"纯 ALARM 核 + 配置里显式 `devicetree`"能否替代内嵌 DTB 的核，**用链式加载
+测试，零 NVRAM 风险、失败自动退回菜单**：
+
+```sh
+# 1) 只增加一个 EFI 目录，共享模块与配置，不碰 NVRAM
+sudo grub-install --target=arm64-efi --efi-directory=/boot \
+     --boot-directory=/boot/grub --bootloader-id=grub-alarm --no-nvram
+
+# 2) 在能用的 GRUB 里加一个链式加载项（放进 /etc/grub.d/ 才会在 grub-mkconfig 后保留）
+#    menuentry 'GRUB: ALARM core (test)' {
+#        chainloader /EFI/grub-alarm/grubaa64.efi
+#    }
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+测试期间 **不要动** `/boot/EFI/Boot/bootaa64.efi`（fallback，出问题时的保险）与
+`/boot/EFI/arch/`（当前在用的核）。
+
 ---
 
 ## 包清单
