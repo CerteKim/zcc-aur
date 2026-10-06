@@ -1,0 +1,32 @@
+#!/bin/bash
+# mkinitcpio hook: add the Xiaomi Book S 12.4 (SC8180X / BOOK124) firmware to
+# the initramfs.
+#
+# Why it is needed: this machine keeps its vendor firmware in
+# /usr/lib/firmware/qcom/XIAOMI/BOOK124 (ADSP, CDSP, SLPI, MPSS-no-modem, GPU
+# zap shader, WLAN, venus), and the SLPI/CDSP come up early - before the root
+# filesystem is mounted when the root fs is unlocked interactively.  Without the
+# blobs in the initramfs, fastrpc / hexagonrpcd / the sensors and the display
+# stack can be left waiting on firmware that only appears later (or never, if
+# root is encrypted).
+#
+# Add it to /etc/mkinitcpio.conf, before kms so the panel stack can rely on it:
+#
+#     HOOKS=(base systemd autodetect microcode modconf \
+#            xiaomi-book124-firmware kms keyboard sd-vconsole block \
+#            filesystems fsck)
+#
+# The hook is shipped by xiaomi-book-12.4-firmware as
+# /usr/lib/initcpio/install/xiaomi-book124-firmware; a copy in
+# /etc/initcpio/install/ shadows it.
+
+build() {
+    add_full_dir /lib/firmware/qcom/XIAOMI/BOOK124
+}
+
+help() {
+    cat <<HELPEOF
+Adds Xiaomi Book S 12.4 / SC8180X (BOOK124) firmware to the initramfs.
+Requires the xiaomi-book-12.4-firmware package.
+HELPEOF
+}

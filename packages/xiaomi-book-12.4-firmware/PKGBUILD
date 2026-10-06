@@ -11,6 +11,11 @@
 # mcfgs (11 MB) are deliberately left out: the DTS uses the no-modem variant
 # qcmpss8180_nm.mbn, so they would never be loaded.
 #
+# The package also ships the mkinitcpio hook that puts the blobs into the
+# initramfs.  It used to live only in /etc/initcpio/install (hand-made), so a
+# fresh installation got the firmware but not the hook - and the SLPI/CDSP come
+# up before the root filesystem is mounted.
+#
 # The tarball is generated locally by scripts/make-firmware-tarball.sh from the
 # installed firmware tree (or from a Windows mount) and is not tracked by git:
 # it is 30+ MB of proprietary blobs, and redistributing them is your call, not
@@ -18,20 +23,29 @@
 
 pkgname=xiaomi-book-12.4-firmware
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): vendor firmware for ADSP/CDSP/SLPI/MPSS/WLAN/venus"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom: proprietary vendor firmware')
 options=('!strip')
+install="$pkgname.install"
 source=("$pkgname-$pkgver.tar.zst"
-        'firmware-provenance.md')
+        'firmware-provenance.md'
+        'xiaomi-book124-firmware')
 # 该 tarball 由 scripts/make-firmware-tarball.sh 在本机生成，所以这里用 SKIP；
 # 如果你要固定校验，生成后把 sha256 填进来即可。
-sha256sums=('SKIP' 'SKIP')
+sha256sums=('SKIP'
+            'SKIP'
+            'bbd34c7beba28f6cafe507a07be68a94a254a430a06acdb408679fe22c504379')
 
 package() {
     cp -a usr "$pkgdir/"
     install -Dm644 firmware-provenance.md \
         "$pkgdir/usr/share/doc/$pkgname/provenance.md"
+
+    # mkinitcpio hook, shipped instead of hand-placed: add
+    # "xiaomi-book124-firmware" to HOOKS in /etc/mkinitcpio.conf (before kms).
+    install -Dm644 xiaomi-book124-firmware \
+        "$pkgdir/usr/lib/initcpio/install/xiaomi-book124-firmware"
 }

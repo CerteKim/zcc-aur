@@ -1,0 +1,36 @@
+# The firmware is only useful in the initramfs if the hook is listed there; the
+# hook file itself is shipped by this package now.
+_hooks_note() {
+    local conf=/etc/mkinitcpio.conf
+
+    if ! [ -r "$conf" ]; then
+        return 0
+    fi
+
+    if grep -qE '^\s*HOOKS=.*xiaomi-book124-firmware' "$conf"; then
+        echo "    ✓ $conf 的 HOOKS 里有 xiaomi-book124-firmware"
+    else
+        echo "!! $conf 的 HOOKS 里没有 xiaomi-book124-firmware —— 固件不会进 initramfs。"
+        echo "   把 hook 加到 kms 之前，例如："
+        echo "     HOOKS=(base systemd autodetect microcode modconf xiaomi-book124-firmware kms ...)"
+        echo "   改完执行： sudo mkinitcpio -P"
+        return 0
+    fi
+
+    if [ -e /etc/initcpio/install/xiaomi-book124-firmware ]; then
+        echo "    注意：/etc/initcpio/install/xiaomi-book124-firmware 还在，它会盖住本包"
+        echo "          装的那份。内容相同的话可以删掉，交给包管理："
+        echo "          sudo rm /etc/initcpio/install/xiaomi-book124-firmware"
+    fi
+}
+
+post_install() {
+    echo "==> Xiaomi Book S 12.4 固件包"
+    echo "    固件: /usr/lib/firmware/qcom/XIAOMI/BOOK124 与 qcom/sc8180x/venus*"
+    echo "    mkinitcpio hook: /usr/lib/initcpio/install/xiaomi-book124-firmware"
+    _hooks_note
+}
+
+post_upgrade() {
+    post_install
+}

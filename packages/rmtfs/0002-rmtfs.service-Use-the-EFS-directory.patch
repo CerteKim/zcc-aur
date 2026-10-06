@@ -1,0 +1,33 @@
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Subject: [PATCH] rmtfs.service: store the EFS images in /var/lib/rmtfs
+
+The packaged unit starts rmtfs with "-r -P -s", i.e. it goes looking for raw EFS
+partitions on the device.  On the Xiaomi Book S 12.4 those are not usable (the
+modem runs the no-modem firmware), so the images have to live in a directory
+instead - which is what "-o <dir>" is for, and what this board has been running
+with as a hand-written /etc/systemd/system/rmtfs.service override:
+
+    ExecStart=/usr/bin/rmtfs -r -s -o /var/lib/rmtfs
+
+Fold that into the unit so the override is not needed.  -r (read-only) stays: the
+modem never writes back, and read-only keeps a stale EFS from turning into a
+corrupt one.  -P goes away with the partition lookup.  RMTFS_EFS_PATH is
+substituted by the Makefile and defaults to /var/lib/rmtfs, which the package
+also creates through tmpfiles.d.
+
+Upstream ships a second unit (rmtfs-dir.service) that already passes -o, but it
+does not pass -r and is not what the main unit should be here.
+---
+diff --git a/rmtfs.service.in b/rmtfs.service.in
+index f7df549..4e42ed4 100644
+--- a/rmtfs.service.in
++++ b/rmtfs.service.in
+@@ -4,7 +4,7 @@ Before=NetworkManager.service
+ ConditionPathExists=/dev/qcom_rmtfs_mem1
+ 
+ [Service]
+-ExecStart=RMTFS_PATH/rmtfs -r -P -s
++ExecStart=RMTFS_PATH/rmtfs -r -s -o RMTFS_EFS_PATH
+ Restart=always
+ RestartSec=1
+ 

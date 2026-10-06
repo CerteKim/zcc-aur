@@ -1,8 +1,16 @@
 # Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
+#
+# Local addition (CerteKim/zcc-aur): the packaged rmtfs.service now starts rmtfs
+# with "-r -s -o /var/lib/rmtfs" instead of "-r -P -s", so the EFS images live in
+# a directory rather than the raw partitions.  That is what this board has been
+# running with via a hand-written /etc/systemd/system/rmtfs.service override; the
+# override is gone now because the unit itself carries it.  The old
+# "-o optarg" patch is obsolete: upstream has had "o:" in the getopt string since
+# commit 2ee01bf, and this package's git source already contains it.
 
 pkgname=rmtfs
 pkgver=v1.3.r0.gb30a3eb
-pkgrel=1
+pkgrel=2
 pkgdesc="Qualcomm Remote Filesystem service"
 arch=('armv7h' 'aarch64' 'x86_64')
 url="https://github.com/linux-msm/rmtfs"
@@ -11,10 +19,12 @@ makedepends=('git' 'qmic')
 depends=('qrtr')
 source=(
 	'git+https://github.com/linux-msm/rmtfs.git'
-    # "0001-rmtfs-Fix-command-line-argument-parsing-for-o-optarg.patch"
+	'0002-rmtfs.service-Use-the-EFS-directory.patch'
+	'rmtfs-tmpfiles.conf'
 )
 sha256sums=('SKIP'
-    #        '44ea5652f9379715dc8fd4c35e7a052fb79436097ba4572b82f041c56b1bcb00'
+            'de953356e7b55254eda9521208a9d350b4c65de76219bcd32e76458398fef3f9'
+            '79af98b830c80892f2f0fe0e0b0c270d2a3d14978bb58c88931cc3c2c1ce2962'
 )
 
 pkgver() {
@@ -22,11 +32,11 @@ pkgver() {
 	git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
 }
 
-#prepare() {
-#    cd "rmtfs"
-#
-#    git apply "$srcdir/0001-rmtfs-Fix-command-line-argument-parsing-for-o-optarg.patch"
-#}
+prepare() {
+	cd "$pkgname"
+
+	patch -Np1 -i "$srcdir/0002-rmtfs.service-Use-the-EFS-directory.patch"
+}
 
 build() {
 	cd "$pkgname"
@@ -36,4 +46,8 @@ build() {
 package() {
 	cd "$pkgname"
 	make DESTDIR="$pkgdir/" prefix="/usr" install
+
+	# The directory the unit points -o at (upstream's Makefile installs only the
+	# binary and the two units).
+	install -Dm644 "$srcdir/rmtfs-tmpfiles.conf" "$pkgdir/usr/lib/tmpfiles.d/rmtfs.conf"
 }

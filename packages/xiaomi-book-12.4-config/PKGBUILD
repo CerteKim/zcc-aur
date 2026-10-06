@@ -6,25 +6,31 @@
 #   * a GRUB snippet that passes a device tree (see the file's own comment: the
 #     Arch Linux ARM grub has no device tree support at all, and this machine's
 #     ACPI-only firmware provides none, so without it the kernel does not boot)
+#   * a libinput quirk that tags the detachable keyboard as internal, without
+#     which "disable touchpad while typing" does nothing (see the file itself;
+#     the cover is one USB composite device providing both keyboard and touchpad)
 #
 # It used to carry prebuilt panel device trees; those were bring-up snapshots and
 # are superseded by the kernel source.  See the config package's history.
 #
-# Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook"
-# and the stylus charger driver in "ra9530-dkms".
+# Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook",
+# the stylus charger driver in "ra9530-dkms" and the SLPI sensor stack in
+# "xiaomi-book-12.4-sensors".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=3
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry"
+pkgrel=4
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, libinput quirk"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
 depends=('alsa-ucm-conf')
 optdepends=('bluez-utils: bluetooth-bdaddr.service needs btmgmt and hciconfig'
-            'grub: the /etc/grub.d snippet only matters with GRUB')
+            'grub: the /etc/grub.d snippet only matters with GRUB'
+            'libinput: the /etc/libinput quirk only matters with libinput (GNOME)')
 backup=('etc/conf.d/bluetooth-bdaddr'
-        'etc/grub.d/09_xiaomi_book_dtb')
+        'etc/grub.d/09_xiaomi_book_dtb'
+        'etc/libinput/local-overrides.quirks')
 install=$pkgname.install
 source=(
     '09_xiaomi_book_dtb'
@@ -32,6 +38,7 @@ source=(
     'bluetooth-bdaddr.conf'
     'bluetooth-bdaddr.service'
     'bluetooth-bdaddr.sh'
+    'local-overrides.quirks'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
 )
@@ -41,6 +48,7 @@ sha256sums=(
     '51f3ed8a757e5653c186dc26c44b0a96cc327918561f3e51db87af98d074ac7d'
     'd1c942bb46110fb92a13b90aa067d0162c869328e97abdcfb6f42dad73ae0349'
     'e594356e6d37fca26b859306425264d57ad2c104a31db3fb5d19581c771de762'
+    '4de4c5e866369f528e20426be5c9a1b90ca57d330eee7c434f547a8de07d1d3f'
     '03c58f8e9b3e0b1536cad33c1972b63de46efbb757333c97bd7cce363746f00e'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
 )
@@ -57,6 +65,11 @@ package() {
     install -Dm644 bluetooth-bdaddr.conf    "$pkgdir/etc/conf.d/bluetooth-bdaddr"
     install -Dm644 bluetooth-bdaddr.service "$pkgdir/usr/lib/systemd/system/bluetooth-bdaddr.service"
     install -Dm644 60-bluetooth-bdaddr.rules "$pkgdir/usr/lib/udev/rules.d/60-bluetooth-bdaddr.rules"
+
+    # libinput: the DWT quirk for the detachable cover keyboard.  Installing it
+    # here (instead of only shipping the tools package's installer script) is the
+    # point: nothing has to be run by hand afterwards.
+    install -Dm644 local-overrides.quirks "$pkgdir/etc/libinput/local-overrides.quirks"
 
     # GRUB: must stay executable, grub-mkconfig runs the scripts in /etc/grub.d
     install -Dm755 09_xiaomi_book_dtb "$pkgdir/etc/grub.d/09_xiaomi_book_dtb"
