@@ -193,7 +193,7 @@ root=${DEV}2
 if [[ $DEV == *[0-9] ]]; then esp=${DEV}p1; root=${DEV}p2; fi
 
 run mkfs.vfat -F32 -n MIBOOK_ESP "$esp"
-run mkfs.ext4 -q -L MIBOOK_ROOT -m 1 "$root"
+run mkfs.ext4 -q -F -L MIBOOK_ROOT -m 1 "$root"
 
 if [[ $DRY_RUN == no ]]; then
     esp_uuid=$(blkid -s UUID -o value "$esp")
@@ -204,10 +204,23 @@ fi
 ESPMNT=$(mktemp -d)
 msg "写启动文件到 $esp"
 run mount "$esp" "$ESPMNT"
-run cp -a "$STAGE/esp/." "$ESPMNT/"
+# vfat 存不了属主/权限，cp -a 会因为 chown 失败而返回非零（set -e 下直接中断），
+# 所以这里用 cp -r：ESP 上的权限由挂载选项（fmask/dmask）决定，够用。
+run cp -r "$STAGE/esp/." "$ESPMNT/"
 if [[ $DRY_RUN == no ]]; then
     sed -i "s/@USB_ROOT_UUID@/$root_uuid/" "$ESPMNT/grub/grub.cfg"
     echo "    live 根 UUID = $root_uuid（已写进 grub.cfg）"
+
+    # 写完了当场核一遍：少了任何一件，U 盘都引导不了
+    missing=0
+    for f in EFI/BOOT/BOOTAA64.EFI grub/grub.cfg grub/arm64-efi/fdt.mod \
+             grub/arm64-efi/linux.mod vmlinuz-linux-mibook initramfs-linux-mibook.img \
+             dtb/linux-mibook/qcom/sc8180x-xiaomi-book-12.4.dtb; do
+        [[ -f $ESPMNT/$f ]] || { echo "    !! 少了 $f" >&2; missing=1; }
+    done
+    [[ $missing == 0 ]] || die "p1 上的启动文件不完整，别拔盘"
+    echo "    ✓ 启动文件齐全（$(find "$ESPMNT" -type f | wc -l) 个文件，$(du -sh "$ESPMNT" | cut -f1)）"
+    grep -q 'devicetree' "$ESPMNT/grub/grub.cfg" || die "grub.cfg 里没有 devicetree 行"
 fi
 run sync
 

@@ -67,17 +67,17 @@ install -Dm755 "$GRUB_BACKUP/grubaa64.efi" "$STAGE/esp/EFI/BOOT/BOOTAA64.EFI"
 MODSRC=/boot/grub/arm64-efi
 [[ -d $MODSRC ]] || MODSRC=/usr/lib/grub/arm64-efi
 [[ -d $MODSRC ]] || { echo "找不到 GRUB 模块目录（/boot/grub/arm64-efi）" >&2; exit 1; }
-cp -a "$MODSRC" "$STAGE/esp/grub/"
+cp -a --no-preserve=ownership "$MODSRC" "$STAGE/esp/grub/"
 [[ -f $STAGE/esp/grub/arm64-efi/fdt.mod ]] || { echo "缺 fdt.mod：devicetree 命令就没了" >&2; exit 1; }
-[[ -d /boot/grub/fonts ]] && cp -a /boot/grub/fonts "$STAGE/esp/grub/"
+[[ -d /boot/grub/fonts ]] && cp -a --no-preserve=ownership /boot/grub/fonts "$STAGE/esp/grub/"
 
 # 内核 / initramfs / DTB
 [[ -f /boot/vmlinuz-linux-mibook ]] || { echo "找不到 /boot/vmlinuz-linux-mibook" >&2; exit 1; }
 [[ -f /boot/initramfs-linux-mibook.img ]] || { echo "找不到 /boot/initramfs-linux-mibook.img" >&2; exit 1; }
 [[ -f /boot/$DTB_REL ]] || { echo "找不到 /boot/$DTB_REL" >&2; exit 1; }
-cp -a /boot/vmlinuz-linux-mibook "$STAGE/esp/"
-cp -a /boot/initramfs-linux-mibook.img "$STAGE/esp/"
-cp -a "/boot/$DTB_REL" "$STAGE/esp/$DTB_REL"
+cp -a --no-preserve=ownership /boot/vmlinuz-linux-mibook "$STAGE/esp/"
+cp -a --no-preserve=ownership /boot/initramfs-linux-mibook.img "$STAGE/esp/"
+cp -a --no-preserve=ownership "/boot/$DTB_REL" "$STAGE/esp/$DTB_REL"
 
 # 启动菜单：模板里的两个"内部系统"UUID 从当前系统现场取，避免换成写死的旧值
 #

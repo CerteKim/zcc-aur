@@ -194,8 +194,9 @@ install -Dm755 "$SRC/EFI/BOOT/BOOTAA64.EFI" "$espmnt/EFI/Boot/bootaa64.efi"
 
 if [[ ! -f $espmnt/grub/arm64-efi/fdt.mod ]]; then
     msg "补 GRUB 模块（含提供 devicetree 命令的 fdt.mod）"
-    cp -a "$SRC/grub/arm64-efi" "$espmnt/grub/"
-    [[ -d $SRC/grub/fonts && ! -d $espmnt/grub/fonts ]] && cp -a "$SRC/grub/fonts" "$espmnt/grub/"
+    # vfat 上 chown 会失败、cp -a 会因此返回非零，所以用 cp -r
+    cp -r "$SRC/grub/arm64-efi" "$espmnt/grub/"
+    [[ -d $SRC/grub/fonts && ! -d $espmnt/grub/fonts ]] && cp -r "$SRC/grub/fonts" "$espmnt/grub/"
 else
     msg "GRUB 模块已在 ESP 上（保留现有）"
 fi
