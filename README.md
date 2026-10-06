@@ -144,7 +144,10 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | **`cdba`** | 高通的 Core Dump Bridge Agent（调试用）。构建前需先 `sudo pacman -S libftdi`（在 `extra` 里）。 |
 
 `maintainer/` 目录里是**不打包**的开发脚本（写死了维护者的检出路径），仅供仓库维护使用；
-其中 `cleanup-stale-system-files.sh` 用来清掉手工时代遗留的、会盖住包内文件的副本。
+其中 `cleanup-stale-system-files.sh` 用来清掉手工时代遗留的、会盖住包内文件的副本，
+`stage-mibook-usb.sh` + `make-mibook-usb.sh` 用来做**本机能引导的救援/live U 盘**
+（本机固件不提供设备树，只有 Surface Pro X 镜像里那份 GRUB 核能引导，详见
+`grub-spx-backup-README.md`），`mibook-install.sh` 随 live U 盘提供，用来修启动链。
 
 > 这台机器上"手工加进系统"的配置逐条清单（原来在哪、现在归谁、哪些能删）见
 > **[SYSTEM-CONFIG.md](SYSTEM-CONFIG.md)**。
