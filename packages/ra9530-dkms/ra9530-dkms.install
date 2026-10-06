@@ -26,13 +26,12 @@ post_install() {
     fi
 
     echo
-    echo "==> 驱动需要设备树里有 charger@3b 节点，先确认："
+    echo "==> 驱动需要设备树里有 charger@3b 节点，本仓库的内核包自带："
     if [ -d /proc/device-tree/soc@0/geniqup@8c0000/i2c@89c000/charger@3b ]; then
         echo "    ✓ 已存在"
     else
-        echo "    ✗ 不存在 —— 执行（会自动备份 DTB，然后在 /boot 里加节点）："
-        echo "        sudo ra9530-install-dt"
-        echo "        sudo reboot"
+        echo "    ✗ 不存在 —— 当前内核的 DTB 不是由本仓库的 linux-mibook 构建的。"
+        echo "      请改用该内核包（其源码已描述该节点），见 github.com/CerteKim/zcc-aur"
     fi
 
     echo

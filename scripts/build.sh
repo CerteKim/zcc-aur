@@ -30,7 +30,7 @@ prune_old() {
             sed -E 's/-[^-]+-[^-]+-(any|aarch64)\.pkg\.tar\.[a-z0-9]+$//' | sort -u || true)
     for n in $names; do
         local list
-        list=$(find "$REPO" -maxdepth 1 -name "${n}-*.pkg.tar.zst" | sort -V)
+        list=$(find "$REPO" -maxdepth 1 -name "${n}-*.pkg.tar.*" | sort -V)
         local keep
         keep=$(echo "$list" | tail -1)
         echo "$list" | while read -r f; do
@@ -46,13 +46,12 @@ make_db() {
         return
     fi
     repo-add -q "$REPO/$DBNAME.db.tar.gz" "$REPO"/*.pkg.tar.*
-    # GitHub Releases 不能存符号链接，所以额外放一份解引用后的 .db / .files
     # GitHub Releases 不能存符号链接：用 --remove-destination 生成真实副本
     cp -Lf --remove-destination "$REPO/$DBNAME.db.tar.gz" "$REPO/$DBNAME.db"
     if [[ -e "$REPO/$DBNAME.files.tar.gz" ]]; then
         cp -Lf --remove-destination "$REPO/$DBNAME.files.tar.gz" "$REPO/$DBNAME.files"
     fi
-    echo "    db 已生成: repo/$DBNAME.db（$(find "$REPO" -name '*.pkg.tar.zst' | wc -l) 个包）"
+    echo "    db 已生成: repo/$DBNAME.db（$(find "$REPO" -maxdepth 1 -name '*.pkg.tar.*' | wc -l) 个包）"
 }
 
 case "${1:-}" in

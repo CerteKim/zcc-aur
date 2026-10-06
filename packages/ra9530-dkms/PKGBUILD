@@ -14,7 +14,7 @@
 
 pkgname=ra9530-dkms
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Renesas RA9530 wireless power transmitter — Xiaomi Book S 12.4 stylus charger (DKMS)"
 arch=('any')
 url="https://github.com/CerteKim/ra9530-mainline"
@@ -33,6 +33,7 @@ package() {
     install -d "$dst"
     cp -r "$src/dkms.conf" "$src/COPYING" "$src/driver" "$dst/"
 
-    # handy for adding the device tree node to an already installed DTB
-    install -Dm755 "$src/driver/install-dt.sh" "$pkgdir/usr/bin/ra9530-install-dt"
+    # Only the driver sources.  The device tree node comes from the kernel
+    # source (linux-mibook pins the commit whose .dts describes it), so this
+    # package does not touch /boot.
 }

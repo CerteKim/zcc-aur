@@ -30,14 +30,12 @@ sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config xiaomi-book-12.4
 > 如果你签了名（见下面「签名」），把 `SigLevel` 换成 `Required DatabaseOptional`
 > 并导入你的公钥即可。
 
-### 装完还需两步（各包 `.install` 里也会提示）
+### 装完还需一步：笔的 BLE 配对
 
-1. **设备树节点**（RA9530 驱动靠它才能 probe）：
-   ```sh
-   sudo ra9530-install-dt      # 自动备份 DTB 后加 charger@3b 节点
-   sudo reboot
-   ```
-2. **笔的 BLE 配对**（充电策略需要读取笔的电量）：
+设备树节点由 `linux-mibook` 的内核源码提供（`charger@3b` 与 `i2c7` 的 400 kHz
+都写在 DTS 里），装好该内核即自带，**不需要再对 DTB 做任何后处理**。
+
+**笔的 BLE 配对**（充电策略需要读取笔的电量）：
    ```sh
    bluetoothctl -> agent on; default-agent; scan on; pair <笔地址>; trust <笔地址>
    ```
@@ -49,7 +47,7 @@ sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config xiaomi-book-12.4
 | 包 | 内容 |
 |---|---|
 | **`linux-mibook`** | 内核（含 `linux-mibook-headers`）：mainline + 面板/音频/GPU 等本地补丁。**编译需 1~2 小时**，通常单独构建后用 `--collect` 收进仓库。 |
-| **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；同时提供 `ra9530-install-dt` 用于给已安装的 DTB 加节点。 |
+| **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由 `linux-mibook` 的内核源码提供。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据。这些**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
 | **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）、备选面板 DTB。 |
 | **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装等。 |
