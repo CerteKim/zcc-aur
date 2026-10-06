@@ -1,0 +1,37 @@
+# Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+#
+# Vendor firmware for the Xiaomi Book S 12.4 (sc8180x / TIMI).
+#
+# These blobs are extracted from the Windows installation that ships on this
+# machine and are NOT part of the "linux-firmware" package; without them the
+# ADSP, CDSP, SLPI, MPSS, WLAN and VPU (venus) firmware cannot be loaded.
+#
+# Only the files the device tree actually references are included.  In
+# particular the full modem firmware (qcmpss8180.mbn, 75 MB) and the modem_pr/
+# mcfgs (11 MB) are deliberately left out: the DTS uses the no-modem variant
+# qcmpss8180_nm.mbn, so they would never be loaded.
+#
+# The tarball is generated locally by scripts/make-firmware-tarball.sh from the
+# installed firmware tree (or from a Windows mount) and is not tracked by git:
+# it is 30+ MB of proprietary blobs, and redistributing them is your call, not
+# something this repository should do by default.
+
+pkgname=xiaomi-book-12.4-firmware
+pkgver=1
+pkgrel=1
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): vendor firmware for ADSP/CDSP/SLPI/MPSS/WLAN/venus"
+arch=('any')
+url="https://github.com/CerteKim/zcc-aur"
+license=('custom: proprietary vendor firmware')
+options=('!strip')
+source=("$pkgname-$pkgver.tar.zst"
+        'firmware-provenance.md')
+# 该 tarball 由 scripts/make-firmware-tarball.sh 在本机生成，所以这里用 SKIP；
+# 如果你要固定校验，生成后把 sha256 填进来即可。
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+    cp -a usr "$pkgdir/"
+    install -Dm644 firmware-provenance.md \
+        "$pkgdir/usr/share/doc/$pkgname/provenance.md"
+}

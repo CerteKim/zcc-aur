@@ -1,17 +1,17 @@
 # Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 #
-# Machine-specific bits for the Xiaomi Book S 12.4 (sc8180x / TIMI):
-#   * VPU (venus) firmware extracted from the Windows install
+# Machine-specific configuration for the Xiaomi Book S 12.4 (sc8180x / TIMI):
 #   * ALSA UCM profile for the WCD9340 + WSA881x speaker setup
 #   * WCN3998 Bluetooth address workaround (unit + udev rule + conf)
 #   * alternative panel device trees
 #
-# The kernel is in "linux-mibook"; the stylus charger driver is "ra9530-dkms".
+# Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook"
+# and the stylus charger driver in "ra9530-dkms".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
 pkgrel=1
-pkgdesc="Xiaomi Book S 12.4 (sc8180x): venus firmware, ALSA UCM profile, Bluetooth address, panel DTs"
+pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, panel DTs"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('custom')
@@ -32,9 +32,6 @@ source=(
     'sc8180x-xiaomi-book-12.4.single-link.dtb'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
-    'venus-README.md'
-    'venus-noreloc.mbn'
-    'venus.mbn'
 )
 sha256sums=(
     '3856760ba63f0606ccb11f58e19118ac699514bd78ed6fca18e7f848206f104f'
@@ -49,17 +46,9 @@ sha256sums=(
     '930c3c36dad91bc841f86b426490bd2bfa4506f7e1141df8e5b942b887433c6d'
     '03c58f8e9b3e0b1536cad33c1972b63de46efbb757333c97bd7cce363746f00e'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
-    '97b34b809c774527c889769120171f65a11f049542a83d52ce2645d8d7a57907'
-    '1dca3c4b802491327132a6912c17ec2ec09c1de390aef4d00e34df429b7d0eb7'
-    'e6eda8bbdc505d05a33297643657cc5a8ec222cd3332bee014c278765ce7fe9a'
 )
 
 package() {
-    # VPU firmware
-    install -Dm644 venus.mbn         "$pkgdir/usr/lib/firmware/qcom/sc8180x/venus.mbn"
-    install -Dm644 venus-noreloc.mbn "$pkgdir/usr/lib/firmware/qcom/sc8180x/venus-noreloc.mbn"
-    install -Dm644 venus-README.md   "$pkgdir/usr/share/doc/$pkgname/venus-firmware.md"
-
     # ALSA UCM
     install -Dm644 ucm-HiFi.conf "$pkgdir/usr/share/alsa/ucm2/Qualcomm/xiaomi-book-12.4/HiFi.conf"
     install -Dm644 ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf \

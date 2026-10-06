@@ -16,3 +16,4 @@ repo/
 packages/*/*.tar.gz
 packages/*/*.tar.xz
 packages/*/pkg/
+packages/*/*.tar.zst
