@@ -1,0 +1,82 @@
+# Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+#
+# iio-sensor-proxy with the two changes this board needs, built from the same
+# upstream release the distribution ships (3.9) and installed in its place.
+#
+# Why a patched proxy is needed at all:
+#
+#   1. Startup race.  The D-Bus name is taken while the (slow) SSC sensor
+#      discovery still runs, so gnome-shell can claim the accelerometer before
+#      the proxy has opened it.  That early claim is answered immediately but
+#      never starts polling, and it then blocks every later claim - the
+#      accelerometer stays dead for the whole session.
+#
+#   2. drv-ssc-accel.c now honours the ACCEL_MOUNT_MATRIX udev property, like
+#      the IIO drivers do.  libssc bakes the vendor matrix into every sample, so
+#      a board whose sensor frame is rotated against the panel (this one: a
+#      portrait panel driven as landscape) can only be corrected here.  The
+#      matrix itself is shipped by xiaomi-book-12.4-sensors
+#      (92-fastrpc-accel-matrix.rules).
+#
+# The patch is deliberately not upstreamed yet ("先不上游"); once it is, this
+# package goes away and plain iio-sensor-proxy can be reinstalled.
+#
+# It *replaces* the packaged iio-sensor-proxy rather than shadowing it: the
+# hand-made setup copied a binary into /usr/local/lib plus a systemd drop-in
+# pointing ExecStart at it, which left two copies of the same program and two
+# places to look when it misbehaves.  provides/conflicts means pacman removes
+# the distribution package and mutter's dependency is satisfied by this one.
+
+pkgname=iio-sensor-proxy-ssc
+pkgver=3.9
+pkgrel=1
+pkgdesc="IIO accelerometer sensor to input device proxy (SSC patches for the Xiaomi Book S 12.4)"
+arch=('aarch64')
+url="https://gitlab.freedesktop.org/hadess/iio-sensor-proxy"
+license=('GPL-3.0-only')
+depends=('glib2' 'glibc' 'libgcc' 'libgudev' 'libssc' 'polkit')
+makedepends=('meson')
+provides=("iio-sensor-proxy=$pkgver")
+conflicts=('iio-sensor-proxy')
+install="$pkgname.install"
+
+source=("iio-sensor-proxy-$pkgver.tar.gz::https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/$pkgver/iio-sensor-proxy-$pkgver.tar.gz"
+        '0001-ssc-accel-startup-claim-and-mount-matrix.patch')
+sha256sums=('af5edd307dcfa52dc3a242d13b7cc756e90a71640caf332efbad960e21649ae4'
+            'SKIP')
+
+prepare() {
+    cd "iio-sensor-proxy-$pkgver"
+    patch -Np1 -i "$srcdir/0001-ssc-accel-startup-claim-and-mount-matrix.patch"
+}
+
+build() {
+    cd "iio-sensor-proxy-$pkgver"
+
+    # Same layout options as the distribution build (arch-meson uses
+    # libexecdir=/usr/lib, which is why the daemon lives at /usr/lib/
+    # iio-sensor-proxy, not /usr/libexec/...), plus -Dssc-support=enabled:
+    # libssc is an optional dependency, and without that flag the SSC drivers are
+    # compiled out even though libssc is installed (which is exactly the state
+    # that makes the accelerometer invisible with no error anywhere).
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --libexecdir=/usr/lib \
+        --buildtype=plain \
+        -Dsystemdsystemunitdir=/usr/lib/systemd/system \
+        -Dudevrulesdir=/usr/lib/udev/rules.d \
+        -Dsysconfdir=/usr/share \
+        -Dssc-support=enabled
+    meson compile -C build
+}
+
+package() {
+    cd "iio-sensor-proxy-$pkgver"
+    meson install -C build --destdir="$pkgdir"
+
+    # GPL-3: ship the modification itself.  Upstream 3.9 is public, so the patch
+    # plus that tarball is the complete corresponding source of this binary.
+    install -Dm644 "$srcdir/0001-ssc-accel-startup-claim-and-mount-matrix.patch" \
+        "$pkgdir/usr/share/doc/$pkgname/0001-ssc-accel-startup-claim-and-mount-matrix.patch"
+}

@@ -1,0 +1,33 @@
+post_install() {
+    echo "==> 已安装打过 SSC 补丁的 iio-sensor-proxy（替换发行版那份）"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload 2>/dev/null || true
+        if systemctl try-restart iio-sensor-proxy.service 2>/dev/null; then
+            echo "    ✓ iio-sensor-proxy.service 已重启，用的是新二进制"
+        else
+            echo "    服务没在跑；需要时：sudo systemctl restart iio-sensor-proxy"
+        fi
+    fi
+    echo
+    echo "==> 这个补丁做两件事（详见 PKGBUILD 顶部注释）"
+    echo "    1) 修启动期抢占：gnome-shell 在传感器还没被打开时就 claim，"
+    echo "       之后整场会话都拿不到加速度计"
+    echo "    2) 让 drv-ssc-accel.c 认 ACCEL_MOUNT_MATRIX —— 矩阵由"
+    echo "       xiaomi-book-12.4-sensors 的 92-fastrpc-accel-matrix.rules 提供"
+    echo "    验证：monitor-sensor（转动设备，orientation 应跟着变）"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop iio-sensor-proxy.service 2>/dev/null || true
+    fi
+}
+
+post_remove() {
+    echo "==> 本包同时提供了 iio-sensor-proxy，卸载后那个依赖就空了（mutter 需要它）："
+    echo "     sudo pacman -S iio-sensor-proxy"
+}

@@ -1,0 +1,58 @@
+diff --git a/src/drv-ssc-accel.c b/src/drv-ssc-accel.c
+index 4130657..d72e215 100644
+--- a/src/drv-ssc-accel.c
++++ b/src/drv-ssc-accel.c
+@@ -95,6 +95,29 @@ ssc_accelerometer_open (GUdevDevice *device)
+ 	drv_data->location = setup_accel_location (device);
+ 	set_accel_scale (&drv_data->scale, 1.0);
+ 
++	/* The SSC also reports a mount matrix, but libssc applies it to the
++	 * raw sample before we ever see it, so a board whose sensor frame is
++	 * rotated relative to the display cannot be corrected through the
++	 * sensor properties. Allow an ACCEL_MOUNT_MATRIX udev property to
++	 * overrule it, exactly like the IIO drivers do. */
++	if (device) {
++		const char *property;
++
++		property = g_udev_device_get_property (device, "ACCEL_MOUNT_MATRIX");
++		if (property) {
++			g_autofree AccelVec3 *override = NULL;
++
++			if (parse_mount_matrix (property, &override)) {
++				g_free (drv_data->mount_matrix);
++				drv_data->mount_matrix = g_steal_pointer (&override);
++				g_debug ("Using ACCEL_MOUNT_MATRIX from udev for SSC accelerometer");
++			} else {
++				g_warning ("Failed to parse ACCEL_MOUNT_MATRIX ('%s') from udev",
++					   property);
++			}
++		}
++	}
++
+ 	return sensor_device;
+ }
+ 
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 9c7e8cd..c11f36e 100644
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -779,6 +779,19 @@ name_acquired_handler (GDBusConnection *connection,
+ 		}
+ 
+ 		DEVICE_FOR_TYPE(i) = sensor_device;
++
++		/* The D-Bus name is already owned while the (slow) SSC sensor
++		 * discovery above runs, so a client can claim a sensor before it
++		 * has been opened.  Such an early claim is answered immediately
++		 * but cannot start polling, and because it stays in the clients
++		 * hash table, no later claim will start polling either - the
++		 * sensor stays dead for the whole session.  Start it now.
++		 */
++		if (g_hash_table_size (data->clients[i]) > 0) {
++			g_debug ("Sensor %s was claimed during startup, starting it",
++				 driver_type_to_str (i));
++			driver_set_polling (sensor_device, TRUE);
++		}
+ 	}
+ 
+ 	if (!any_sensors_left (data))
