@@ -1,0 +1,52 @@
+# Maintainer: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+#
+# Himax HX83121A DSI panel driver for the Xiaomi Book S 12.4 (the PNC panel),
+# packaged as DKMS so the display path can be iterated on without rebuilding
+# the whole kernel.
+#
+# Why this exists: the driver lives in the linux-a51 branch as an in-tree file,
+# so every one-line DSC/timing change costs a 1-2 h kernel build.  This package
+# carries the same file as an external module.  DKMS installs it to
+#     /lib/modules/${kernelver}/updates/dkms/panel-himax-hx83121a.ko
+# and depmod's search order is "updates extramodules built-in", so it takes
+# precedence over the copy linux-mibook ships in kernel/drivers/gpu/drm/panel/.
+#
+# Requirement: the kernel has to build the in-tree driver as a *module*
+# (CONFIG_DRM_PANEL_HIMAX_HX83121A=m, as set in this repository's
+# xiaomi-only.config).  With =y the built-in driver claims the panel at boot
+# and this module is never used; the .install script checks for that case.
+#
+# The kernel tree stays the source of truth - refresh this copy with
+#     ./scripts/sync-panel-dkms.sh
+
+pkgname=panel-himax-hx83121a-dkms
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Himax HX83121A DSI panel driver (Xiaomi Book S 12.4 PNC panel) - DKMS"
+arch=('any')
+url="https://github.com/CerteKim/zcc-aur"
+license=('GPL-2.0-only')
+depends=('dkms')
+optdepends=('linux-mibook: this repository kernel, provides DRM/MIPI-DSI and the panel node')
+install=$pkgname.install
+
+# The commit in CerteKim/linux-a51 that panel-himax-hx83121a.c was copied from.
+# Informational only: DKMS rebuilds against whatever kernel is installed.
+_kcommit=e7f42460ff28bf7dea1052609c287da6616f2938
+
+source=("panel-himax-hx83121a.c"
+        "Makefile"
+        "dkms.conf")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+    # DKMS looks the sources up as /usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION},
+    # i.e. /usr/src/panel-himax-hx83121a-$pkgver - keep the two in step.
+    local dst="$pkgdir/usr/src/panel-himax-hx83121a-$pkgver"
+
+    install -d "$dst"
+    install -m644 panel-himax-hx83121a.c Makefile dkms.conf "$dst/"
+
+    # Sources only: the module is built by DKMS for the running kernel, and the
+    # device tree node comes from the kernel package.
+}

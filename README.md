@@ -24,6 +24,9 @@ Server = https://github.com/CerteKim/zcc-aur/releases/latest/download
 sudo pacman -Syu
 sudo pacman -Ss zcc          # 看看有哪些
 sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config xiaomi-book-12.4-tools
+
+# 可选：只有在你想快速迭代面板驱动时才需要（见「面板驱动做成 DKMS」）
+sudo pacman -S panel-himax-hx83121a-dkms
 ```
 
 > **为什么是 TrustAll？** 目前 db 没有签名（本机没有 GPG 私钥）。
@@ -124,6 +127,7 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 |---|---|
 | **`linux-mibook`** | 内核（含 `linux-mibook-headers`）：mainline + 面板/音频/GPU 等本地补丁。**编译需 1~2 小时**，通常单独构建后用 `--collect` 收进仓库。 |
 | **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由 `linux-mibook` 的内核源码提供。 |
+| **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**（见下文）。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据。这些**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
 | **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）。 |
 | **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与测试、GPU OC 检查、面板/DTB 切换、固件重打包、挂起测试、libinput DWT quirk 安装等。 |
@@ -135,6 +139,37 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 > 高通栈里 **`rmtfs-dummy` 未收录** ✗：它的 `0001-Redirect-file-lookups-to-var-lib-rmtfs.patch`
 > 已经跟不上上游（`rmtfs.service.in` 处 `patch does not apply`），`prepare()` 直接失败。
 > 真需要时得先把补丁更新到当前上游。
+
+### 面板驱动做成 DKMS（`panel-himax-hx83121a-dkms`）
+
+面板是这套移植里还在反复调的一块（DSC、时序），而它原来是内核树里的一个文件 ——
+改一行就要重编 1~2 小时。现在有两条路：
+
+| | 谁提供 | 改动路径 | 代价 |
+|---|---|---|---|
+| **内核包**（权威副本） | `linux-mibook` 编出的 `=m` 模块，落在 `kernel/drivers/gpu/drm/panel/` | 改 linux-a51 内核树 → 重编内核 | 1~2 小时 |
+| **DKMS 包**（覆盖用，可选） | `updates/dkms/panel-himax-hx83121a.ko` | 改 `/usr/src/panel-himax-hx83121a-1.0.0/panel-himax-hx83121a.c` → `sudo dkms install -m panel-himax-hx83121a -v 1.0.0 --force` | **约 10 秒** |
+
+要点：
+
+* 内核里这个驱动**必须是 `=m`**（`xiaomi-only.config` 已改成 =m）。如果编进了内核
+  （`=y`），内建驱动会在启动时先绑定面板节点，DKMS 那份永远用不上 ✗ ——
+  包的 `.install` 会检测并警告。
+* **谁生效由 depmod 的搜索顺序决定**：`updates extramodules built-in`，
+  `updates/dkms/` 排在 `kernel/` 前面 ✓。查证：
+  ```sh
+  modinfo -n panel-himax-hx83121a     # 应指向 /lib/modules/<ver>/updates/dkms/
+  ```
+* **必须重建 initramfs**：`kms` hook 会把 `/drivers/gpu/drm/` 下的模块打进
+  initramfs，不重建的话开机加载的仍是旧副本。走 pacman 安装/升级/卸载时这是自动的
+  （`dkms` 的 `70-` hook 先重建模块，`mkinitcpio` 的 `90-` hook 随后重建 initramfs）；
+  只有手工 `dkms install --force` 那条路要自己补 `sudo mkinitcpio -P`。
+* 卸载本包**不会黑屏**：内核包自带的那份仍在，`depmod` 会退回用它 ✓（内容较旧）。
+* **内核树是唯一权威来源**，改完内核那边把拷贝同步过来（顺带做出树编译体检）：
+  ```sh
+  ./scripts/sync-panel-dkms.sh          # 默认从 linux-surface/src/kernel 取
+  ./scripts/sync-panel-dkms.sh ~/src/linux
+  ```
 
 ### 关于固件包
 
@@ -162,6 +197,7 @@ DTS 用的是 `_nm` 变体，这两样永远不会被加载。整棵树 118 MB�
 ```sh
 ./scripts/build.sh                       # 构建 packages/ 下全部包 → 登记进 repo/
 ./scripts/build.sh ra9530-dkms           # 只构建一个
+./scripts/sync-panel-dkms.sh             # 从内核树同步面板驱动（含出树编译体检）
 ./scripts/build.sh --collect ~/aarch64-packages/linux-surface   # 收编已构建好的内核包
 ./scripts/build.sh --list                # 看看 repo/ 里有什么
 
@@ -205,6 +241,10 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 * **`ra9530-dkms` 会自己清理旧模块副本**：包里的 `.install` 会先删掉
   `/lib/modules/<ver>` 下除 `updates/dkms/` 之外的 `ra9530-charger.ko`
   （`updates/` 的优先级高于 `extra/`，残留会让 `modprobe` 一直加载旧版）。
+* **`panel-himax-hx83121a-dkms` 是唯一「覆盖内核内建模块」的包**：DKMS 装到
+  `updates/dkms/`，内核包装到 `kernel/drivers/gpu/drm/panel/`，路径不同、不冲突，前者优先。
+  它要求内核里对应选项是 `=m`（`linux-mibook` 已是），`ra9530-dkms` 那种纯粹的
+  外挂驱动没有这个前提 —— 写别的 DKMS 包时别照抄错这一点。
 * **GPL 与源码**：分发内核二进制时必须能提供对应源码。内核源码已公开在
   **<https://github.com/CerteKim/linux-a51>** 的 `xiaomi-mainline-panel2` 分支上
   （就是 `packages/linux-mibook/PKGBUILD` 里 `_ref_ksource` 锁定的那个 commit），
@@ -212,5 +252,7 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
   完整克隆这个内核仓库有 3+ GB，真要改也能改（PKGBUILD 注释里写了怎么改）。
 * **固件是厂商专有 blob**（从本机 Windows 分区提取）：仓库不把它们放进 git，
   是否把打好的二进制包公开到 Release 由你决定。
-* **驱动与内核版本**：`ra9530-dkms` 是 DKMS 包，会跟随已安装内核重建；
-  内核升级后无需手动干预（前提是新内核提供 `/lib/modules/<ver>/build`）。
+* **驱动与内核版本**：`ra9530-dkms` 与 `panel-himax-hx83121a-dkms` 都是 DKMS 包，
+  会跟随已安装内核重建 —— `dkms` 的 `70-` hook 在内核头文件包更新时自动重建，
+  随后 `mkinitcpio` 的 `90-` hook 重建 initramfs，所以内核升级后无需手动干预
+  （前提是新内核提供 `/lib/modules/<ver>/build`）。面板那份还必须让内核选项保持 `=m`。

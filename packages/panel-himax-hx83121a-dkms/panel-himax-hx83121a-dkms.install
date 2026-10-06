@@ -1,0 +1,83 @@
+MODNAME=panel-himax-hx83121a
+# 兜底版本号：正常情况下从 pacman 传给脚本函数的参数里取（见 post_install），
+# 这一行只是以防万一。改版本时 PKGBUILD 的 pkgver 与 dkms.conf 的
+# PACKAGE_VERSION 必须一起改。
+FALLBACK_VER=1.0.0
+CONFIG_SYM=CONFIG_DRM_PANEL_HIMAX_HX83121A
+
+# 关于 initramfs：mkinitcpio 的 kms hook 会把 /drivers/gpu/drm/ 下的模块打进
+# initramfs，而面板驱动在不在里面决定开机时用的是哪一份。走 pacman 安装/升级/
+# 卸载时这件事是自动的 —— dkms 的 70- hook 先重建模块，mkinitcpio 的 90- hook
+# 随后重建 initramfs（两者的触发条件都包含 usr/src/*/dkms.conf，文件名顺序保证
+# 先 70 后 90）。只有开发时手工 `dkms install --force` 那条路径需要自己跑一次。
+
+_installed_note() {
+    local resolved
+    resolved=$(modinfo -n "$MODNAME" 2>/dev/null || true)
+    case "$resolved" in
+        */updates/dkms/*)
+            echo "    ✓ 生效的是 DKMS 版本：$resolved" ;;
+        "")
+            echo "    ? 没找到模块，depmod 可能还没跑：sudo depmod -a $(uname -r)" ;;
+        *)
+            echo "    ✗ 生效的是内核自带的那份：$resolved"
+            echo "      depmod 的顺序是 updates extramodules built-in，这一份应被"
+            echo "      updates/dkms/ 盖过；若没有，多半是内核把驱动编成了 =y" ;;
+    esac
+}
+
+_warn_if_builtin() {
+    # 内建驱动会在启动时先绑定面板节点，DKMS 这份永远不会被用到 —— 明说。
+    local cfg="/lib/modules/$(uname -r)/build/.config"
+    if [ -r "$cfg" ] && grep -q "^$CONFIG_SYM=y" "$cfg"; then
+        echo "!! 当前内核里 $CONFIG_SYM=y（编进了内核），DKMS 模块不会被使用。"
+        echo "   需要 $CONFIG_SYM=m 的内核：本仓库的 linux-mibook 已经是 =m，"
+        echo "   重编并安装该内核后重新执行："
+        echo "     sudo dkms install -m $MODNAME -v $MODVER --force"
+        echo "     sudo mkinitcpio -P"
+    fi
+}
+
+post_install() {
+    # pacman 调脚本函数时会传参：post_install 是 ($1=包名 $2=版本)，
+    # post_upgrade 是 ($1=新名 $2=新版本 $3=旧名 $4=旧版本)。用参数而不是
+    # 在脚本里写死版本号，免得和 PKGBUILD / dkms.conf 悄悄对不上。
+    local MODVER=${2:-$FALLBACK_VER}
+
+    echo "==> 为内核 $(uname -r) 构建并安装 $MODNAME/$MODVER"
+    _warn_if_builtin
+
+    if dkms install -m "$MODNAME" -v "$MODVER" --force; then
+        depmod -a "$(uname -r)" 2>/dev/null || true
+        _installed_note
+        echo
+        echo "==> 快速迭代（不用重编内核）：改完源码后"
+        echo "     /usr/src/$MODNAME-$MODVER/panel-himax-hx83121a.c"
+        echo "     sudo dkms install -m $MODNAME -v $MODVER --force && sudo mkinitcpio -P"
+        echo "   那个 mkinitcpio -P 不能省：模块在 initramfs 里，不重建的话"
+        echo "   开机加载的还是旧的那一份。"
+    else
+        echo "!! DKMS 构建失败。最常见的原因是缺少当前内核的构建目录："
+        echo "     /lib/modules/$(uname -r)/build"
+        echo "   装好本仓库的内核与头文件包（linux-mibook + linux-mibook-headers）后重试："
+        echo "     sudo dkms install -m $MODNAME -v $MODVER --force"
+    fi
+}
+
+post_upgrade() {
+    post_install "$@"
+}
+
+pre_remove() {
+    local MODVER=${2:-$FALLBACK_VER}
+    echo "==> 移除 DKMS 模块 $MODNAME/$MODVER"
+    dkms remove -m "$MODNAME" -v "$MODVER" --all || true
+}
+
+post_remove() {
+    depmod -a "$(uname -r)" 2>/dev/null || true
+    echo "    内核包自带的那份仍在 /lib/modules/$(uname -r)/kernel/drivers/gpu/drm/panel/，"
+    echo "    移除本包后生效的是它（内容较旧，但不会黑屏）。"
+    echo "    initramfs 由 mkinitcpio 的 90- hook 重建；若不是走 pacman 卸载的，"
+    echo "    记得补一次：sudo mkinitcpio -P"
+}
