@@ -1,7 +1,7 @@
 MODNAME=ra9530
 # 兜底版本号：正常情况下从 pacman 传给脚本函数的参数里取（见下），
 # 这里只是以防万一。改版本时 dkms.conf / PKGBUILD / 这一行三处保持一致。
-FALLBACK_VER=1.0.3
+FALLBACK_VER=1.0.4
 
 purge_stale() {
     # 之前用普通 modules_install 装过的副本（extra/ 或 updates/）优先级可能高于
@@ -18,11 +18,19 @@ purge_stale() {
     done < <(find "/lib/modules/$(uname -r)" -name 'ra9530-charger.ko*' 2>/dev/null)
 }
 
+# pacman 传进来的是「完整版本串」pkgver-pkgrel，不是包名（PKGBUILD(5)：
+# post_install 一个参数 $1=1.0.4-1；post_upgrade 两个参数 $1=1.0.4-1
+# $2=1.0.3-2；pre_remove 一个参数 $1=1.0.4-1）。DKMS 要的是 dkms.conf 里的
+# PACKAGE_VERSION，不带 pkgrel，所以末尾的 -pkgrel 要砍掉。
+# （早先这里按 $2 取版本，实际拿到的是旧版本串，1.0.1 那次就是这么撞上的。）
+dkms_version() {
+    # 1.0.4-1 -> 1.0.4（没有 -pkgrel 时原样返回）
+    echo "${1%-*}"
+}
+
 post_install() {
-    # pacman 调脚本函数时会传参：post_install 是 ($1=包名 $2=版本)，
-    # post_upgrade 是 ($1=新名 $2=新版本 $3=旧名 $4=旧版本)。用参数而不是
-    # 写死，1.0.1 那版就是写死的，和 dkms.conf 撞过一次。
-    local MODVER=${2:-$FALLBACK_VER}
+    local MODVER
+    MODVER=$(dkms_version "${1:-$FALLBACK_VER}")
 
     echo "==> 为内核 $(uname -r) 构建并安装 $MODNAME/$MODVER"
     purge_stale
@@ -56,8 +64,20 @@ post_upgrade() {
     post_install "$@"
 }
 
+pre_upgrade() {
+    # 升级前先摘掉旧版本的 DKMS 登记：它指向的 /usr/src/ra9530-<旧版本>
+    # 紧接着就会被 pacman 删掉，留着会变成悬空条目 —— 以后每次装内核，
+    # DKMS 的 alpm hook 都会拿它去构建并失败。
+    [[ -n ${2:-} ]] || return 0
+    local OLDVER
+    OLDVER=$(dkms_version "$2")
+    echo "==> 移除旧版 DKMS 登记 $MODNAME/$OLDVER"
+    dkms remove -m "$MODNAME" -v "$OLDVER" --all >/dev/null 2>&1 || true
+}
+
 pre_remove() {
-    local MODVER=${2:-$FALLBACK_VER}
+    local MODVER
+    MODVER=$(dkms_version "${1:-$FALLBACK_VER}")
     echo "==> 移除 DKMS 模块 $MODNAME/$MODVER"
     dkms remove -m "$MODNAME" -v "$MODVER" --all || true
 }
