@@ -12,6 +12,10 @@ repo/
 *.swp
 .DS_Store
 
+# Python 缓存（ra9530-charge-policy-wait.py 曾被 py_compile 过）
+__pycache__/
+*.pyc
+
 # makepkg 下载/解压的源码
 packages/*/*.tar.gz
 packages/*/*.tar.xz

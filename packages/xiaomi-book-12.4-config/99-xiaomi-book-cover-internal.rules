@@ -1,0 +1,73 @@
+# Xiaomi Book 12.4 (sc8180x)：把可拆卸 cover (SINO WEALTH 2717:5032) 的所有输入
+# 节点标回 internal，恢复 libinput 的 disable-while-typing（打字时禁用触控板）。
+#
+# 安装位置（内容相同，二选一；/etc 里的同名文件会盖住 /usr/lib 的那份，别两份都留）：
+#   * 包：  /usr/lib/udev/rules.d/99-xiaomi-book-cover-internal.rules
+#   * 手工：/etc/udev/rules.d/99-xiaomi-book-cover-internal.rules
+# 99- 前缀保证它在 65-integration.rules 与 70-touchpad.rules 之后生效。
+#
+# ── 根因（2026-10-07 定位） ────────────────────────────────────────────────
+#
+# udev 的 65-integration.rules 按 USB 设备的 removable 属性判定集成度。本机
+# cover 的 removable=unknown，于是它的键盘 / 触控板 / Mouse 节点全被标成
+# ID_INTEGRATION=external。
+#
+# 而 libinput 的 tp_init_dwt()（src/evdev-mt-touchpad.c:3450）对外部触控板
+# 直接返回，既不注册 DWT 配置也不初始化 dwt_enabled：
+#
+#     if (device->tags & EVDEV_TAG_EXTERNAL_TOUCHPAD &&
+#         !tp_is_tpkb_combo_below(device))
+#             return;
+#     ...
+#     tp->dwt.dwt_enabled = tp_dwt_default_enabled(tp);
+#     device->base.config.dwt = &tp->dwt.config;
+#
+# 后果链条（逐条实测印证）：
+#   1. device->config.dwt == NULL -> libinput_device_config_dwt_is_available()==0
+#      （反汇编 /usr/lib/libinput.so.10 可见它只是 ldr x1,[x0,#144]; cbz -> return 0）
+#      -> mutter 的 meta_input_settings_native_set_disable_while_typing() 里
+#         "if (dwt_is_available()) dwt_set_enabled(...)" 变成空操作，GNOME 那个
+#         "打字时禁用触控板" 开关彻底失效
+#   2. dwt_enabled 保持 zalloc 的 false -> tp_keyboard_event() 在
+#      "if (!tp->dwt.dwt_enabled) return;" 就退出 -> keyboard_active 永远 false
+#      -> tp_post_events() 里那句 keyboard_active 早退不生效
+#      -> 打字时触控板照常驱动指针
+#   3. 与此同时 tp_want_dwt() 走的是"外部触控板只要与键盘同 vid:pid 就算一对"
+#      那条分支，于是日志里照样出现
+#      "palm: dwt activated with ...Touchpad<->...Device"，
+#      看起来像"配对成功却没效果"，极具误导性
+#
+# 触控板与键盘的 internal tag 管的是两件不同的事，缺一不可：
+#   * 触控板 internal -> tp_init_dwt() 才会注册 DWT 配置（问题 1、2）
+#   * 键盘 internal   -> tp_want_dwt() 的第二个分支才会配得上对（问题 3）
+# Mouse 节点也一起标掉，是为了不让这个"静音节点"被当成外接鼠标：否则一旦
+# send-events 选成 disabled-on-external-mouse，触控板会把自己禁用掉。
+#
+# 以前是好的：本机这些输入节点一度是 ID_BUS=platform -> ID_INTEGRATION=internal，
+# 那时 DWT 正常。本规则就是把这个状态恢复回来。
+#
+# ── 为什么不用 libinput quirk ─────────────────────────────────────────────
+#
+# libinput 的 MatchBus/MatchVendor/MatchProduct 只从 udev 属性 PRODUCT 取值
+# （src/quirks.c: match_fill_bus_vid_pid()，全文件不读 ID_VENDOR_ID/ID_MODEL_ID），
+# 而本机 input 事件节点上没有 PRODUCT —— 它只出现在父 input 设备的 uevent 里
+# （/sys/class/input/input9/uevent 有 PRODUCT=3/2717/5032/111，event4 没有；
+#   /run/udev/data 下也没有任何设备带 PRODUCT）。所以带 MatchVendor 的 libinput
+# quirk 在这台机器上永远匹配不上。本规则改用 ID_VENDOR_ID/ID_MODEL_ID，
+# 它们来自 USB 父设备，稳定存在。
+#
+# ── 回退 ─────────────────────────────────────────────────────────────────
+# 删掉本文件，然后
+#   sudo udevadm control --reload && sudo udevadm trigger --action=change \
+#       --subsystem-match=input
+# 再注销 / 重新登录。
+
+# 整个 cover：键盘 / 触控板 / Mouse / Consumer Control / UNKNOWN
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", \
+  ENV{ID_VENDOR_ID}=="2717", ENV{ID_MODEL_ID}=="5032", \
+  ENV{ID_INTEGRATION}="internal"
+
+# 触控板的兼容变量必须一起改，否则 70-touchpad.rules 会拿它覆盖 ID_INTEGRATION
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", \
+  ENV{ID_VENDOR_ID}=="2717", ENV{ID_MODEL_ID}=="5032", \
+  ENV{ID_INPUT_TOUCHPAD}=="1", ENV{ID_INPUT_TOUCHPAD_INTEGRATION}="internal"

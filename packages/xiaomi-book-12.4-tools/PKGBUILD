@@ -6,55 +6,36 @@
 
 pkgname=xiaomi-book-12.4-tools
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc="Xiaomi Book S 12.4: helper scripts (audio, panel, bluetooth, suspend, GPU)"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
 license=('GPL-2.0-or-later')
 depends=('bash')
-optdepends=('python: hive-dump.py and repack-venus-firmware.py'
-            'libinput: install-dwt-fix.sh writes a local quirks file')
+optdepends=('python: hive-dump.py')
 source=(
     'audio-fix-install.sh'
     'audio-level-test.sh'
-    'dwt-install-dwt-fix.sh'
-    'dwt-local-overrides.quirks'
     'gpu-oc-check.sh'
     'hive-dump.py'
     'install-amp-variant.sh'
     'install-bluetooth-bdaddr.sh'
     'install-dtb-from-tree.sh'
-    'repack-venus-firmware.py'
     'suspend-test.sh'
 )
 sha256sums=(
     '538e610174c552302485f4c538aecfbd29ba9e402c2a6df0db0165e4f7a48fa3'
     '41137dee84290b8e099682020ece3dca0a277213d02e396abe4da1f5e4c52d7a'
-    '6424e77d7375dd7b3d799fb70dfe565bfd81be9028fbd5eaa94181414569217e'
-    '4de4c5e866369f528e20426be5c9a1b90ca57d330eee7c434f547a8de07d1d3f'
     '2e728ceb287f3799e0b28094eae8aa71f518c939c071d53fad6b3020460555d1'
     'abe3577f86e7d2fc4de861dbf2c9313b33afc6b89869add440248224afd56ac9'
     '6bc5a3ad85dbe1f227b6317111fd95676e49a81f398b8dc36ab7c31130609101'
     '671e5d50cb0c0e00b65230d121db5510514b412e2f9cb282fa33eaebcefe133a'
-    'e58e08328fec00d66fd22b7c6af40f0defa6d6a76a70d9cf2471a1516b532c74'
-    'bf44bd7f31f9f664fdc07b4da1be5d473c510da778a7d95eb6ac689c67cea449'
+    '998751182d612ae3960082f4f6455cb6f37fc28d6479fafb8eda2df480ff60fe'
     'b7675d49b994bfeb1bae0cc2fe10dc41f669147c3f57d6cb2032cf3590373bfc'
 )
 
 package() {
-    for f in audio-fix-install.sh audio-level-test.sh gpu-oc-check.sh hive-dump.py install-amp-variant.sh install-bluetooth-bdaddr.sh install-dtb-from-tree.sh repack-venus-firmware.py suspend-test.sh; do
+    for f in audio-fix-install.sh audio-level-test.sh gpu-oc-check.sh hive-dump.py install-amp-variant.sh install-bluetooth-bdaddr.sh install-dtb-from-tree.sh suspend-test.sh; do
         install -Dm755 "$f" "$pkgdir/usr/bin/$f"
     done
-
-    # install-dwt-fix.sh looks for local-overrides.quirks next to itself, so
-    # the real script and the quirks file stay together; /usr/bin gets a wrapper.
-    install -Dm755 dwt-install-dwt-fix.sh "$pkgdir/usr/share/$pkgname/dwt/install-dwt-fix.sh"
-    install -Dm644 dwt-local-overrides.quirks "$pkgdir/usr/share/$pkgname/dwt/local-overrides.quirks"
-
-    install -d "$pkgdir/usr/bin"
-    cat > "$pkgdir/usr/bin/install-dwt-fix.sh" <<'WRAP'
-#!/bin/sh
-exec /usr/share/xiaomi-book-12.4-tools/dwt/install-dwt-fix.sh "$@"
-WRAP
-    chmod 755 "$pkgdir/usr/bin/install-dwt-fix.sh"
 }

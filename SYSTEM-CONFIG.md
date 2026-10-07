@@ -70,11 +70,45 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 
 | 原来 | 现在 |
 |---|---|
-| `xiaomi-book-12.4-tools` 里的 `install-dwt-fix.sh` 手工运行 | `xiaomi-book-12.4-config` **直接安装** `/etc/libinput/local-overrides.quirks` |
+| `xiaomi-book-12.4-tools` 里的 `install-dwt-fix.sh` 手工运行（装一个 libinput quirk） | `xiaomi-book-12.4-config` **直接安装** `/usr/lib/udev/rules.d/99-xiaomi-book-cover-internal.rules`（udev 规则） |
 
-文件内容不变（键盘盖 `2717:5032` 是键盘+触控板同一个 USB 复合设备，udev 只给触控板
-打了 `internal`，键盘那半边没有 → libinput 的 `tp_want_dwt()` 不配对 → GNOME 那个
-开关无效）。tools 包里的安装脚本仍保留，作为修复/核对工具。
+**根因（2026-10-07 定位）**：cover（`2717:5032`，键盘 / 触控板 / Mouse 是同一个 USB 复合
+设备）的 `removable=unknown`，udev 的 `65-integration.rules` 因此把它的**所有**输入节点
+标成 `ID_INTEGRATION=external`。而 libinput 的 `tp_init_dwt()`
+（`src/evdev-mt-touchpad.c:3450`）对外部触控板**直接返回，连 DWT 配置都不注册**：
+
+    if (device->tags & EVDEV_TAG_EXTERNAL_TOUCHPAD &&
+        !tp_is_tpkb_combo_below(device))
+            return;
+    ...
+    tp->dwt.dwt_enabled = tp_dwt_default_enabled(tp);
+    device->base.config.dwt = &tp->dwt.config;
+
+后果链条：`device->config.dwt == NULL` → `libinput_device_config_dwt_is_available()==0`
+→ mutter 里 `if (dwt_is_available()) dwt_set_enabled(...)` 成了空操作（GNOME 那个开关
+失效）→ 同时 `dwt_enabled` 保持 `false`，`tp_keyboard_event()` 在
+`if (!tp->dwt.dwt_enabled) return;` 就退出，`keyboard_active` 永远是 false，
+`tp_post_events()` 里那句早退不生效 → **打字时触控板照常驱动指针**。
+而 `tp_want_dwt()` 走的是"外部触控板只要与键盘同 vid:pid 就算一对"那条分支，所以日志里
+照样出现 `palm: dwt activated with …`，看起来像"配对成功却没效果"，极具误导性。
+
+**修法**：udev 规则把 cover 的所有输入节点标回 `internal` —— 触控板 internal 才会注册
+DWT 配置，键盘 internal 才会配上对，两者缺一不可。
+
+**不能改用 libinput quirk**：它的 `MatchBus/MatchVendor/MatchProduct` 只从 udev 属性
+`PRODUCT` 取值（`src/quirks.c: match_fill_bus_vid_pid()`），而本机 input **事件节点上没有
+`PRODUCT`** —— 它只在父 `inputN` 设备的 uevent 里（`/sys/class/input/input9/uevent` 有
+`PRODUCT=3/2717/5032/111`，`event4` 没有；`/run/udev/data` 下也没有任何设备带它）。
+所以 config 包以前装的那条 `AttrKeyboardIntegration=internal` quirk **从未生效过**，
+现已从包里移除。
+
+**注意**：libinput 不理会 udev 的 `change` 事件（`src/udev-seat.c:211` 只处理
+`add`/`remove`），所以装完必须**注销重登**才生效。
+
+**核对**：
+`udevadm info /sys/class/input/event4 | grep INTEGRATION` 应显示 `internal`；
+运行时可以用 linux-surface 检出里的 `tools/dwt/dwt-probe`（`sudo` 跑）确认
+`event4` 变成 `dwt: available=1`、判定为「DWT 正常工作」。
 
 ### 3.2 笔吸在磁吸位上时屏蔽笔输入
 
@@ -174,6 +208,8 @@ open+read 在 bash 里就这么贵）加一次 `kill -0`（26 µs）。另有每
 | `/etc/systemd/system/rmtfs.service` | 已折进 `rmtfs` 包 |
 | `/etc/systemd/system/ra9530-charge-policy.service` | 手工时代那份；会盖住 `xiaomi-book-12.4-config` 装到 `/usr/lib/systemd/system/` 的同名单元（新版的停靠闸门就不生效了）。删之前先 `systemctl disable --now` |
 | `/etc/udev/rules.d/9{0,1,2}-fastrpc*.rules` | 会盖住包里的 `/usr/lib/udev/rules.d/` 同名文件（内容相同，留着容易搞不清哪份生效） |
+| `/etc/udev/rules.d/99-xiaomi-book-cover-internal.rules` | 会盖住 `xiaomi-book-12.4-config` 装到 `/usr/lib/udev/rules.d/` 的同名规则 |
+| `/etc/libinput/local-overrides.quirks` | 旧的 libinput quirk（`MatchVendor` 在本机永远匹配不上，从未生效）；config 包已不再提供，可删 |
 | `/etc/initcpio/install/xiaomi-book124-firmware` | 已由 firmware 包提供 |
 | `/etc/modprobe.d/vdec-probe.conf` | VPU 探针调试留的 `blacklist qcom-iris` |
 | `/etc/mkinitcpio.d/linux-surface.preset.{bak,pacsave}` | 旧内核包的残留 |
@@ -192,7 +228,6 @@ sudo pacman -U --overwrite '/usr/bin/hexagonrpcd' \
                --overwrite '/usr/share/qcom/*' \
                --overwrite '/usr/lib/systemd/system/hexagonrpcd-*' \
                --overwrite '/usr/lib/udev/rules.d/9?-fastrpc*.rules' \
-               --overwrite '/etc/libinput/local-overrides.quirks' \
                --overwrite '/usr/lib/firmware/qcom/*' \
                --overwrite '/usr/lib/initcpio/install/xiaomi-book124-firmware' \
                --overwrite '/usr/lib/systemd/system/rmtfs.service' \

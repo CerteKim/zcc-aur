@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build a pacman-installable kernel package from a tree that is already built.
 #
-#   ./tools/make-kernel-package.sh <pkgrel> [kernel-build-dir]
+#   ./maintainer/make-kernel-package.sh <pkgrel> [kernel-build-dir]
 #
 # The tree is assumed to be built (`make all modules`) with
 # localversion.10-pkgrel / localversion.20-pkgname present, so that
@@ -12,6 +12,9 @@
 # This script packages the build that is already there instead, using the
 # same layout the PKGBUILD produces (/usr/lib/modules/<ver>/... and
 # /boot/dtb/linux-mibook/qcom/...), plus a real .PKGINFO so pacman accepts it.
+#
+# This is zcc-aur's release path: the package is written straight into repo/
+# (gitignored), and ./scripts/build.sh --db registers it there.
 set -euo pipefail
 
 PKGREL="${1:?usage: $0 <pkgrel> [kernel-build-dir]}"
@@ -21,7 +24,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KVER="$(make -s -C "$KSRC" ARCH=arm64 kernelrelease)"
 STAGE="$(mktemp -d /home/certe/pkgstage-XXXXXX)/linux-mibook"
 M="$STAGE/usr/lib/modules/${KVER}"
-PKG="$REPO/linux-mibook-6.18.2-1-${PKGREL}-aarch64.pkg.tar.zst"
+mkdir -p "$REPO/repo"
+PKG="$REPO/repo/linux-mibook-6.18.2-1-${PKGREL}-aarch64.pkg.tar.zst"
 DTB="sc8180x-xiaomi-book-12.4.dtb"
 
 echo "==> kernel release: ${KVER}"
@@ -71,21 +75,18 @@ install -Dm644 "$M/vmlinuz" "$STAGE/boot/vmlinuz-linux-mibook"
 install -Dm644 "$KSRC/arch/arm64/boot/dts/qcom/$DTB" "$M/dtb/qcom/$DTB"
 BDTB="$STAGE/boot/dtb/linux-mibook/qcom"
 mkdir -p "$BDTB"
-# Both GRUB-referenced paths get the parked (VPU node disabled) DTB, so a plain
-# package install can never make the machine probe the VPU.  The probe variant
-# is only copied over these paths by tools/probe-vdec-run.sh.
+# The package ships the tree's DTB under both paths GRUB references.  The tree
+# keeps the video node disabled and nothing here re-enables it: the VPU probe
+# road is closed (linux-surface's HARDWARE-STATUS.md records how far it got).
 cp "$M/dtb/qcom/$DTB" "$BDTB/$DTB"
 cp "$M/dtb/qcom/$DTB" "$BDTB/$(basename "$DTB" .dtb)-oc.dtb"
-install -Dm644 "$M/dtb/qcom/$DTB" "$BDTB/$(basename "$DTB" .dtb)-vdec-probe.dtb"
-fdtput -ts "$BDTB/$(basename "$DTB" .dtb)-vdec-probe.dtb" \
-    /soc@0/video-codec@aa00000 status okay
 
 echo "==> mkinitcpio preset and .INSTALL"
 # The preset must be shipped: it used to be owned by the previous package, so a
 # package that omits it makes pacman delete it, and then "mkinitcpio -P" fails
 # with "No presets found in /etc/mkinitcpio.d" and /boot keeps a stale
 # initramfs built from another kernel's modules.
-sed "s|%PKGBASE%|linux-mibook|g" "$REPO/linux-mibook.preset" \
+sed "s|%PKGBASE%|linux-mibook|g" "$REPO/packages/linux-mibook/linux-mibook.preset" \
     | install -Dm644 /dev/stdin "$STAGE/etc/mkinitcpio.d/linux-mibook.preset"
 
 cat > "$STAGE/.INSTALL" <<'EOF'
@@ -113,11 +114,11 @@ amp_variant_note() {
 
     note: this package ships the tree's snd-soc-wsa881x.ko (the "gain" build).
           Installing it overwrites any amplifier variant selected with
-          tools/install-amp-variant.sh, and that difference is audible
+          install-amp-variant.sh, and that difference is audible
           (pops / an amplifier left powered with no stream).  Re-apply the
           variant you want now:
-              sudo tools/audio-fix-install.sh         # stock driver
-              sudo tools/install-amp-variant.sh h1a   # never power-cycle
+              sudo audio-fix-install.sh         # stock driver
+              sudo install-amp-variant.sh h1a   # never power-cycle
 NOTE
 }
 EOF
@@ -160,5 +161,5 @@ ls -la "$PKG"
 pacman -Qp "$PKG"
 echo
 echo "install with:  sudo pacman -U $PKG"
-echo "the package ships /boot/vmlinuz-linux-mibook and the DTBs; use"
-echo "$REPO/tools/probe-vdec-run.sh for a verified, revertible probe install"
+echo "the package ships /boot/vmlinuz-linux-mibook and the DTBs"
+echo "register it in the release repo with:  ./scripts/build.sh --db"

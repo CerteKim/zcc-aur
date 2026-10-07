@@ -16,6 +16,17 @@ post_install() {
     echo "        sudo chmod -x /etc/grub.d/10_linux"
 
     echo
+    echo "==> 打字时禁用触控板（把 cover 的输入节点标成 internal）"
+    echo "    已装 /usr/lib/udev/rules.d/99-xiaomi-book-cover-internal.rules"
+    echo "    libinput 只在设备加入时读一次集成度，而且它不理会 udev 的 change 事件，"
+    echo "    所以必须【注销并重新登录】才生效。"
+    if [ -e /etc/udev/rules.d/99-xiaomi-book-cover-internal.rules ]; then
+        echo "    !! /etc/udev/rules.d/99-xiaomi-book-cover-internal.rules 还在（手工时代那份）"
+        echo "       /etc 会盖住包里的同名规则。删掉它，免得以后搞不清哪份生效："
+        echo "           sudo rm /etc/udev/rules.d/99-xiaomi-book-cover-internal.rules"
+    fi
+
+    echo
     echo "==> RA9530 笔策略守护（充电阈值 + 停靠时屏蔽笔输入）"
     if [ -e /etc/systemd/system/ra9530-charge-policy.service ]; then
         echo "    !! /etc/systemd/system/ra9530-charge-policy.service 还在（手工时代的那份）"
