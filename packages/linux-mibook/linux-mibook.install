@@ -23,6 +23,11 @@ post_upgrade() {
 }
 
 post_remove() {
-    rm -f boot/initramfs-linux-surface.img
-    rm -f boot/initramfs-linux-surface-fallback.img
+    # The package's name, not the upstream linux-surface one: the preset builds
+    # /boot/initramfs-linux-mibook.img.  It declares a 'fallback' preset but
+    # leaves fallback_image unset, so mkinitcpio skips it ("No image or UKI
+    # specified") and only the default image exists today; remove both names so
+    # a future fallback image is cleaned up too.
+    rm -f boot/initramfs-linux-mibook.img
+    rm -f boot/initramfs-linux-mibook-fallback.img
 }
