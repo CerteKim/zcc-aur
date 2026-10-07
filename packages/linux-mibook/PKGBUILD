@@ -167,6 +167,18 @@ _package-headers() {
     install -Dt "${builddir}/arch/arm64" -m644 "arch/arm64/Makefile"
     cp -t "${builddir}" -a "scripts"
 
+    # CONFIG_DEBUG_INFO_BTF_MODULES=y makes scripts/Makefile.modfinal run
+    # $(objtree)/tools/bpf/resolve_btfids/resolve_btfids on every external .ko.
+    # That host tool is built during the kernel build but lives outside the
+    # directories copied above, so without it the DKMS build compiles the
+    # module and then dies with
+    #   /.../build/tools/bpf/resolve_btfids/resolve_btfids: No such file or directory
+    # (exit 127, "Bad return status for module build").  Ship it like Arch does.
+    if grep -q '^CONFIG_DEBUG_INFO_BTF_MODULES=y' .config; then
+        install -Dt "${builddir}/tools/bpf/resolve_btfids" -m755 \
+            "tools/bpf/resolve_btfids/resolve_btfids"
+    fi
+
     # add xfs and shmem for aufs building
     mkdir -p "${builddir}"/{fs/xfs,mm}
 
