@@ -13,7 +13,7 @@ arch=("aarch64")
 options=("!strip")
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 
-# e7f42460ff28 is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
+# 07050c5050af is the tip of xiaomi-mainline-panel2: on top of 5788790 (LPG-PWM
 # backlight, power key, volume keys, higher GPU DVFS states) it keeps the user's
 # WSA881x "PA Volume" across DAPM power-up, drops the S24_LE speaker-backend
 # quirk that was costing 20-48 dB, and (now that the level is right) caps the
@@ -29,10 +29,18 @@ makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 # still installs it under the "-oc" name, since the local GRUB entries
 # reference that name.
 #
+# New at this tip: the WCD9340's SoundWire master is hardened.  The AHB
+# address/data pair is serialised, a failed register read no longer injects
+# garbage into the slave status array (the spurious "Slave N state check1:
+# UNATTACHED" cycles), the command FIFO checks fail closed, a read that is
+# given up on leaves the read FIFO empty, transfers are retried, and the IRQ
+# handler's status loop is bounded.  A command error also reports the frame
+# generator state, which is what separates a stray command from a dead link.
+#
 # pkgrel is deliberately left at 1: bumping it would change the release string
 # from 6.18.2-1-mibook+ and invalidate the modules already built against the
 # installed kernel.
-_ref_ksource="e7f42460ff28bf7dea1052609c287da6616f2938"
+_ref_ksource="07050c5050af46024e7fa1777938df51388a662a"
 _ref_config_base="e36ada85974d22c05d1442a4ac47f958c7fa8e15"
 
 # The branch is public at github.com/CerteKim/linux-a51 (the GPL source for the
