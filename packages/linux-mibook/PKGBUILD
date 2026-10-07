@@ -26,8 +26,8 @@ makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'dtc')
 # device tree patching.  The source builds a single device tree now: the "oc"
 # variant is gone because the GPU states it was about — the vendor ones this
 # machine's firmware uses, not an overclock — are the default.  The package
-# still installs it under the "-oc" name, since the local GRUB entries
-# reference that name.
+# installs that one tree under its plain name, which is what the local GRUB
+# entries reference.
 #
 # New at this tip: the WCD9340's SoundWire master is hardened.  The AHB
 # address/data pair is serialised, a failed register read no longer injects
