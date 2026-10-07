@@ -103,9 +103,22 @@ build_initramfs() {
 post_install() {
     depmod "$1" 2>/dev/null || true
     build_initramfs
+    amp_variant_note
 }
 post_upgrade() {
     post_install "$@"
+}
+amp_variant_note() {
+    cat <<'NOTE'
+
+    note: this package ships the tree's snd-soc-wsa881x.ko (the "gain" build).
+          Installing it overwrites any amplifier variant selected with
+          tools/install-amp-variant.sh, and that difference is audible
+          (pops / an amplifier left powered with no stream).  Re-apply the
+          variant you want now:
+              sudo tools/audio-fix-install.sh         # stock driver
+              sudo tools/install-amp-variant.sh h1a   # never power-cycle
+NOTE
 }
 EOF
 
