@@ -1,0 +1,63 @@
+From fb590327de852a2e400e6fc905c77c467ceeb801 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 00:18:56 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: drop the
+ duplicate PCIe2 PERST#
+
+PERST# of the NVMe controller (pcie2@1c18000) is described twice: the
+host bridge carries the deprecated perst-gpios and the pcie@0 root port
+carries reset-gpios, both for TLMM GPIO 102.
+
+Linux 7.2 added the gpiolib-shared framework, which treats a GPIO
+referenced by several firmware nodes as shared and wraps it in a
+gpiolib_shared.proxy.N auxiliary device.  Two properties plus the
+synthetic reset-gpio reference make three references, so the proxy is
+created and qcom_pcie_probe()'s devm_gpiod_get_optional(dev, "perst")
+returns -EPROBE_DEFER until the gpio-shared-proxy module - loaded by
+udev from the root filesystem - registers the proxy gpiochip.  On this
+board PCIe2 only probes at ~15.4 s that way.
+
+That is merely slow when the root filesystem is on the SD card, but when
+it is on the NVMe it deadlocks: the NVMe cannot be enumerated before the
+PCIe controller probes and the controller cannot probe before the root
+filesystem has been mounted, so the initramfs never finds its root.
+
+Keep only the non-deprecated form recommended by qcom,pcie-common.yaml:
+reset-gpios in the pcie@0 root port.  With a single reference plus the
+reset-gpio one the GPIO is not considered shared and PCIe2 probes as
+soon as its PHY is up.
+
+The ACPI tables agree with the rest of the node (PCI2 is the NVMe
+segment, its CLKREQ# is TLMM 176 and the PHY rails are PMIC LDO3_C/LDO5_E,
+matching vreg_l3c_1p2/vreg_l5e_0p88); PERST# itself is driven by the PEP
+firmware and is not exposed in ACPI.
+---
+ arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+index f6a0883a628f..bfaa94f209d5 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -771,7 +771,11 @@
+ // Both PCIE2 and PCIE3 is dectected on Windows,
+ // Lets enable them.
+ 
+-// FIXME: Unknown Pin for PCIE2
++// PERST# is described by the root port's reset-gpios (the non-deprecated
++// binding).  Do not add the deprecated perst-gpios here as well: the same
++// GPIO referenced from both the host bridge and the root port makes 7.2's
++// gpiolib-shared framework wrap it in a shared-GPIO proxy, which then needs
++// the gpio-shared-proxy module -- not available when the rootfs is on NVMe.
+ &pcie2 {
+ 	interrupts = <GIC_SPI 672 IRQ_TYPE_LEVEL_HIGH>,
+ 		     <GIC_SPI 671 IRQ_TYPE_LEVEL_HIGH>,
+@@ -790,8 +794,6 @@
+ 			  "msi6",
+ 			  "msi7";
+ 
+-	perst-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
+-
+ 	//wake-gpios = <&tlmm 104 GPIO_ACTIVE_HIGH>;
+ 
+ 	vddpe-3v3-supply = <&vreg_nvme_3p3>;

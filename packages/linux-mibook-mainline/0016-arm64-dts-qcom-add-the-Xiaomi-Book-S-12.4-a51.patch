@@ -1,0 +1,1610 @@
+From d7ff2ea785a071216a68da023b8ccf8a38683e5b Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:08 +0800
+Subject: [PATCH] arm64: dts: qcom: add the Xiaomi Book S 12.4 (a51)
+
+Describe the board on top of sc8180x.dtsi and sc8180x-pmics.dtsi:
+
+ - display: CSOT PNC357DB1-4 driven by the Himax HX83121A over a single
+   DSI0 link with DSC, the PMC8180C LPG as backlight;
+ - GPU: the higher DVFS states the Adreno 680 firmware advertises;
+ - connectivity: WCN3990 WiFi, WCN3998 Bluetooth with a board BD address
+   (the chip has none provisioned), NVMe on PCIe2, microSD on SDHC2;
+ - audio: WCD9340 with the WSA881x speakers and the VA/TX macros;
+ - the RA9530 magnetic stylus charger on i2c7, its bus at the 400 kHz the
+   firmware declares;
+ - power and volume keys (volume-down is the PMIC RESIN, volume-up the
+   first PMIC's key), lid, RTC, thermal zones, USB-C and the SBU muxes.
+
+The device tree for the "oc" GPU variant is gone: the states it was about
+are the vendor ones this machine's firmware uses, and they are the default
+now.
+
+The board no longer carries its own refgen fixed regulator or the gpu_mem
+label: 7.2's sc8180x.dtsi has the real refgen block (wired into both DSI
+links, so CONFIG_REGULATOR_QCOM_REFGEN is required) and an 8 KB gpu_mem
+region of its own, so the vendor's 20 KB ZAP carve-out is labelled
+gpu_zap_mem instead.
+---
+ arch/arm64/boot/dts/qcom/Makefile             |    1 +
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 1559 +++++++++++++++++
+ 2 files changed, 1560 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 6f33c4e2f09c..f32e2f188d4f 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -287,6 +287,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-xiaomi-book-12.4.dtb
+ sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
+ sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+new file mode 100644
+index 000000000000..c9a8b562996e
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -0,0 +1,1559 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Xiaomi Book S 12.4 (SC8180X / SC8180XP).
++ *
++ * Based on:
++ *  - sc8180x-primus.dts
++ *  - sc8180x-lenovo-flex-5g.dts
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/firmware/qcom,scm.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/gpio-keys.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
++#include <dt-bindings/soc/qcom,apr.h>
++#include <dt-bindings/sound/qcom,q6afe.h>
++#include <dt-bindings/sound/qcom,q6asm.h>
++#include "sc8180x.dtsi"
++#include "sc8180x-pmics.dtsi"
++
++/ {
++	model = "Xiaomi Book 12.4";
++	compatible = "xiaomi,book-12.4", "qcom,sc8180x";
++
++	aliases {
++		serial0 = &uart13;
++	};
++
++	sound: sound {
++		compatible = "xiaomi,book-12.4-sndcard", "qcom,sdm845-sndcard";
++		model = "Xiaomi Book 12.4";
++
++		audio-routing =
++			"RX_BIAS", "MCLK",
++			"AMIC2", "MIC BIAS2",
++			"SpkrLeft IN", "SPK1 OUT",
++			"SpkrRight IN", "SPK2 OUT";
++
++		mm1-dai-link {
++			link-name = "MultiMedia1";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
++			};
++		};
++
++		mm2-dai-link {
++			link-name = "MultiMedia2";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
++			};
++		};
++
++		mm3-dai-link {
++			link-name = "MultiMedia3";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
++			};
++		};
++
++		slim-dai-link {
++			link-name = "SLIM Playback";
++
++			cpu {
++				sound-dai = <&q6afedai SLIMBUS_0_RX>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&left_spkr>, <&right_spkr>,
++					    <&swm 0>, <&wcd9340 0>;
++			};
++		};
++
++		slimcap-dai-link {
++			link-name = "SLIM Capture";
++
++			cpu {
++				sound-dai = <&q6afedai SLIMBUS_0_TX>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&wcd9340 1>;
++			};
++		};
++
++		slim-wcd-dai-link {
++			link-name = "SLIM WCD Playback";
++
++			cpu {
++				sound-dai = <&q6afedai SLIMBUS_1_RX>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&wcd9340 2>;
++			};
++		};
++	};
++
++/*
++	chosen {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++        // From UEFI Memory Map
++        // 0x80600000, 0x02400000, "Display Reserved",  AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN
++		framebuffer0: framebuffer@80600000 {
++			compatible = "simple-framebuffer";
++			reg = <0x0 0x80600000 0x0 0x02400000>;
++			width = <1600>;
++			height = <2560>;
++			stride = <(1600 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++*/
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		pinctrl-0 = <&hall_int_active_state>;
++		pinctrl-names = "default";
++
++		lid-switch {
++			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;
++			linux,input-type = <EV_SW>;
++			linux,code = <SW_LID>;
++			wakeup-source;
++			wakeup-event-action = <EV_ACT_DEASSERTED>;
++		};
++	};
++
++	/*
++	 * Volume keys.  The vendor device tree does not describe them at all, and
++	 * Linux has no driver for the Windows description either: they live in the
++	 * ACPI Generic Buttons device (\_SB.BTNS, _HID ACPI0011) as GpioInt
++	 * resources on \_SB.PM01, the aggregate PMIC controller:
++	 *
++	 *     pin 0x0000  ActiveBoth, ExclusiveAndWake, PullDown -> usage page 1, 0x81  = KPDPWR
++	 *     pin 0x0001  ActiveBoth, Exclusive,        PullDown -> page 0x0c, 0xea   = Volume Down
++	 *     pin 0x0085  ActiveBoth, Exclusive,        PullUp   -> page 0x0c, 0xe9   = Volume Up
++	 *
++	 * (the _DSD UUID is fa6bd625-9ce8-470d-a2c7-b3ca36c4282e).  PM01 mixes two
++	 * number spaces: plain PMIC interrupts appear under 0x80 (the ADC/BCL
++	 * entries in both this machine's and the Surface Pro X's dump are like
++	 * that), while the PMIC GPIOs are 0x7f + gpio - the Surface Pro X button
++	 * device (\_SB.MSBT, MSHW0040) declares the same 0x00/0x80/0x85 triple and
++	 * its Linux port drives the volume keys from the first PMIC's GPIO 1 and
++	 * GPIO 6, which is exactly 0x80 and 0x85.
++	 *
++	 * So on this machine:
++	 *   0x0000 = PON KPDPWR  -> the power key, enabled below as pmc8180_pwrkey
++	 *   0x0001 = PON RESIN   -> volume down, enabled below as pmc8180_resin
++	 *   0x0085 = GPIO 6      -> volume up (verified on hardware)
++	 */
++	volume-up-6-keys {
++		compatible = "gpio-keys";
++		label = "Volume Up (pmc8180_1 gpio6)";
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&volume_up_6_default_state>;
++
++		volume-up-6 {
++			label = "Volume Up";
++			gpios = <&pmc8180_1_gpios 6 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++		};
++	};
++
++	volume-up-5-keys {
++		compatible = "gpio-keys";
++		label = "Volume Up (pmc8180_1 gpio5)";
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&volume_up_5_default_state>;
++
++		volume-up-5 {
++			label = "Volume Up";
++			gpios = <&pmc8180_1_gpios 5 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++		};
++	};
++
++	/*
++	 * Panel backlight: LPG channel 5 on the PMC8180C (register base 0xbd00,
++	 * PWM channel index 4).  The bootloader leaves it running at ~1.17 kHz,
++	 * 256 of 511 duty; nothing in Linux used to touch it, which is why the
++	 * brightness never changed.  Lowering/raising this duty clearly dims and
++	 * brightens the panel, while the PMC8180C WLED block the panel used to
++	 * point at reads back as all zeroes and controls nothing.
++	 *
++	 * No brightness-levels table on purpose: pwm-backlight then uses its
++	 * CIE1931 curve with 4096 levels, which is a sane slider response.
++	 */
++	backlight: backlight {
++		compatible = "pwm-backlight";
++
++		pwms = <&pmc8180c_lpg 4 851667>;
++	};
++
++	pmic-glink {
++		compatible = "qcom,sc8180x-pmic-glink", "qcom,pmic-glink";
++
++		#address-cells = <1>;
++		#size-cells = <0>;
++		orientation-gpios = <&tlmm 38 GPIO_ACTIVE_HIGH>,
++				    <&tlmm 58 GPIO_ACTIVE_HIGH>;
++
++		connector@0 {
++			compatible = "usb-c-connector";
++			reg = <0>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					pmic_glink_con0_hs: endpoint {
++						remote-endpoint = <&usb_prim_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++
++					pmic_glink_con0_ss: endpoint {
++						remote-endpoint = <&usb_prim_qmpphy_out>;
++					};
++				};
++
++				port@2 {
++					reg = <2>;
++
++					pmic_glink_con0_sbu: endpoint {
++						remote-endpoint = <&usbprim_sbu_mux>;
++					};
++				};
++			};
++		};
++
++		connector@1 {
++			compatible = "usb-c-connector";
++			reg = <1>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++				port@0 {
++					reg = <0>;
++
++					pmic_glink_con1_hs: endpoint {
++						remote-endpoint = <&usb_sec_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++
++					pmic_glink_con1_ss: endpoint {
++						remote-endpoint = <&usb_sec_qmpphy_out>;
++					};
++				};
++
++				port@2 {
++					reg = <2>;
++
++					pmic_glink_con1_sbu: endpoint {
++						remote-endpoint = <&usbsec_sbu_mux>;
++					};
++				};
++			};
++		};
++	};
++
++	lcdb_dummy: regulator-lcdb-dummy {
++		compatible = "regulator-fixed";
++		regulator-name = "lcdb_dummy";
++		regulator-min-microvolt = <5500000>;
++		regulator-max-microvolt = <5500000>;
++	};
++
++	reserved-memory {
++		// Based on Windows Memory Map
++		// 0x85d00000 ++ 0x200000     RMTFS
++		// 0x8b700000 ++ 0x500000     CAMERA
++		// 0x8bc00000 ++ 0x180000     WLAN
++		// 0x8d800000 ++ 0x3000000    MPSS
++		// 0x90800000 ++ 0x1c00000    ADSP
++		// 0x92400000 ++ 0x800000     CDSP
++		// 0x92c00000 ++ 0x1400000    SPSS/SLPI
++		// 0x94000000 ++ 0x5000       GPU
++		// 0x9a500000 ++ 0x600000     QSM
++
++		// USE REGION: MPSS_EFS (FULL)
++		rmtfs_mem: rmtfs-region@85500000 {
++			compatible = "qcom,rmtfs-mem";
++			reg = <0x0 0x85500000 0x0 0x200000>;
++			no-map;
++
++			qcom,client-id = <1>;
++			qcom,vmid = <QCOM_SCM_VMID_MSS_MSA>;
++		};
++
++		wlan_mem: wlan-region@8bc00000 {
++			reg = <0x0 0x8bc00000 0x0 0x180000>;
++			no-map;
++		};
++
++		mpss_mem: mpss-region@8d800000 {
++			reg = <0x0 0x8d800000 0x0 0x3000000>;
++			no-map;
++		};
++
++		adsp_mem: adsp-region@90800000 {
++			reg = <0x0 0x90800000 0x0 0x1c00000>;
++			no-map;
++		};
++
++		cdsp_mem: cdsp-region@92400000 {
++			reg = <0x0 0x92400000 0x0 0x800000>;
++			no-map;
++		};
++
++		slpi_mem: slpi-region@92c00000 {
++			reg = <0x0 0x92c00000 0x0 0x1400000>;
++			no-map;
++		};
++
++		/*
++		 * The 20 KB the vendor firmware carves out for the GPU ZAP
++		 * shader.  Upstream's sc8180x.dtsi has its own 8 KB region under
++		 * the gpu_mem label, so this one needs a label of its own.
++		 */
++		gpu_zap_mem: gpu-region@94000000 {
++			reg = <0x0 0x94000000 0x0 0x5000>;
++			no-map;
++		};
++	};
++
++	vph_pwr: vph-pwr-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "vph_pwr";
++		regulator-min-microvolt = <3700000>;
++		regulator-max-microvolt = <3700000>;
++	};
++
++	vreg_s4a_1p8: pm8150-s4-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_s4a_1p8";
++
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++
++		regulator-always-on;
++		regulator-boot-on;
++
++		vin-supply = <&vph_pwr>;
++	};
++
++	vreg_nvme_3p3: regulator-nvme-3p3 {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_nvme_3p3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++
++		gpio = <&pmc8180c_gpios 11 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++
++		regulator-boot-on;
++	};
++
++	usbprim-sbu-mux {
++		compatible = "pericom,pi3usb102", "gpio-sbu-mux";
++
++		enable-gpios = <&tlmm 152 GPIO_ACTIVE_LOW>;
++		select-gpios = <&tlmm 100 GPIO_ACTIVE_HIGH>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&usbprim_sbu_default>;
++
++		mode-switch;
++		orientation-switch;
++
++		port {
++			usbprim_sbu_mux: endpoint {
++				remote-endpoint = <&pmic_glink_con0_sbu>;
++			};
++		};
++	};
++
++	usbsec-sbu-mux {
++		compatible = "pericom,pi3usb102", "gpio-sbu-mux";
++
++		enable-gpios = <&tlmm 188 GPIO_ACTIVE_LOW>;
++		select-gpios = <&tlmm 187 GPIO_ACTIVE_HIGH>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&usbsec_sbu_default>;
++
++		mode-switch;
++		orientation-switch;
++
++		port {
++			usbsec_sbu_mux: endpoint {
++				remote-endpoint = <&pmic_glink_con1_sbu>;
++			};
++		};
++	};
++};
++
++&spmi_bus {
++	pmic@a {
++        status = "disabled";
++    };
++};
++
++&apps_rsc {
++	regulators-0 {
++		compatible = "qcom,pmc8180-rpmh-regulators";
++		qcom,pmic-id = "a";
++
++		vdd-s5-supply = <&vph_pwr>;
++		vdd-l7-l12-l14-l15-supply = <&vreg_s5a_2p0>;
++
++		vreg_s5a_2p0: smps5 {
++			regulator-min-microvolt = <2040000>;
++			regulator-max-microvolt = <2100000>;
++		};
++
++		vreg_l7a_1p8: ldo7 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l9a_1p3: ldo9 {
++			regulator-min-microvolt = <1296000>;
++			regulator-max-microvolt = <1304000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l12a_1p8: ldo12 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-1 {
++		compatible = "qcom,pmc8180c-rpmh-regulators";
++		qcom,pmic-id = "c";
++
++		vdd-s6-supply = <&vph_pwr>;
++		vdd-l2-l3-supply = <&vreg_s6c_1p35>;
++		vdd-l4-l5-l6-supply = <&vreg_bob>;
++		vdd-bob-supply = <&vph_pwr>;
++
++		vreg_s6c_1p35: smps6 {
++			regulator-min-microvolt = <1350000>;
++			regulator-max-microvolt = <1372000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l1c_1p8: ldo1 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3c_1p2: ldo3 {
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l4c_3p3: ldo4 {
++			regulator-min-microvolt = <3008000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l6c_1p8_2p95: ldo6 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <2950000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++		};
++
++		vreg_l10c_3p3: ldo10 {
++			regulator-min-microvolt = <3000000>;
++			regulator-max-microvolt = <3312000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l11c_3p3: ldo11 {
++			regulator-min-microvolt = <3296000>;
++			regulator-max-microvolt = <3304000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_bob: bob {
++			regulator-min-microvolt = <3296000>;
++			regulator-max-microvolt = <3350000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-2 {
++		compatible = "qcom,pmc8180-rpmh-regulators";
++		qcom,pmic-id = "e";
++
++		vdd-s4-supply = <&vph_pwr>;
++		vdd-s5-supply = <&vph_pwr>;
++		vdd-l2-l10-supply = <&vreg_bob>;
++		vdd-l3-l4-l5-l18-supply = <&vreg_s4e_0p98>;
++		vdd-l7-l12-l14-l15-supply = <&vreg_s5e_2p05>;
++		vdd-l13-l16-l17-supply = <&vreg_bob>;
++
++		vreg_s4e_0p98: smps4 {
++			regulator-min-microvolt = <992000>;
++			regulator-max-microvolt = <992000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s5e_2p05: smps5 {
++			regulator-min-microvolt = <2040000>;
++			regulator-max-microvolt = <2040000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l1e_0p75: ldo1 {
++			regulator-min-microvolt = <752000>;
++			regulator-max-microvolt = <752000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l5e_0p88: ldo5 {
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <880000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l7e_1p8: ldo7 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++		};
++
++		vreg_l10e_2p9: ldo10 {
++			regulator-min-microvolt = <2904000>;
++			regulator-max-microvolt = <2904000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++		};
++
++		vreg_l12e_1p8: ldo12 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l14e_1p8: ldo14 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++
++			regulator-boot-on;
++			regulator-always-on;
++		};
++
++		vreg_l16e_3p0: ldo16 {
++			regulator-min-microvolt = <3072000>;
++			regulator-max-microvolt = <3072000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l17e_2p96: ldo17 {
++			regulator-min-microvolt = <2960000>;
++			regulator-max-microvolt = <2960000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++		};
++	};
++};
++
++&gpu {
++	status = "okay";
++
++	zap-shader {
++		memory-region = <&gpu_zap_mem>;
++		firmware-name = "qcom/XIAOMI/BOOK124/qcdxkmsuc8180.mbn";
++	};
++};
++
++/*
++ * Windows exposes the touchscreen bus as \_SB.I2C2, but its MMIO base is
++ * 0x00884000, which maps to Linux's &i2c1 / QUP0 SE1.
++ */
++&i2c1 {
++	clock-frequency = <400000>;
++
++	pinctrl-0 = <&i2c1_active>;
++	pinctrl-names = "default";
++
++	status = "okay";
++
++	touchscreen@4f {
++		compatible = "hid-over-i2c";
++		reg = <0x4f>;
++
++		hid-descr-addr = <0x1>;
++		vdd-supply = <&vreg_l4c_3p3>;
++		vddl-supply = <&vreg_l12e_1p8>;
++		post-power-on-delay-ms = <200>;
++
++		interrupts-extended = <&tlmm 122 IRQ_TYPE_LEVEL_LOW>;
++
++		pinctrl-0 = <&ts_irq_active>;
++		pinctrl-names = "default";
++	};
++};
++
++&i2c7 {
++	/*
++	 * The platform firmware declares 400 kHz for this bus (the ACPI
++	 * descriptor uses 0x00061A80).  1 MHz makes it marginal: broad
++	 * i2cdetect sweeps on the charger below produce "Bus arbitration
++	 * lost, clock line undriveable".
++	 */
++	clock-frequency = <400000>;
++
++	pinctrl-0 = <&i2c7_active>;
++	pinctrl-names = "default";
++
++	status = "okay";
++
++	/*
++	 * Renesas RA9530 stylus charger (ACPI Device (SXB), _HID "TXRA9530").
++	 *
++	 * No pinctrl-0 is needed: the firmware already leaves all five pins
++	 * muxed as plain GPIOs with the right bias and drive settings, and the
++	 * driver takes them over through gpiod.
++	 */
++	pen_charger: charger@3b {
++		compatible = "renesas,ra9530";
++		reg = <0x3b>;
++
++		/* external switch and 7 V boost; firmware leaves both on */
++		switch-gpios = <&tlmm 11 GPIO_ACTIVE_HIGH>;
++		boost-gpios = <&tlmm 186 GPIO_ACTIVE_HIGH>;
++
++		/*
++		 * Two hall sensors; the stylus is attached while they differ.
++		 * Measured on this board: gpio97 is low with the pen attached,
++		 * gpio189 stays high.
++		 */
++		pen-detect-gpios = <&tlmm 97 GPIO_ACTIVE_LOW>,
++				   <&tlmm 189 GPIO_ACTIVE_LOW>;
++
++		/* chip interrupt, open drain, active low */
++		interrupt-parent = <&tlmm>;
++		interrupts = <101 IRQ_TYPE_EDGE_FALLING>;
++
++		renesas,fod-mw = <500>;
++	};
++};
++
++/*
++ * Windows also describes an audio companion (\_SB.ADSP.SLM1.ADCM.AUDD) on
++ * SPI4/CS0 with MBHC and audio-adapter children.  Its interrupt is delivered
++ * through the qcgpio/PDC event space instead of a plain TLMM GPIO, so it is
++ * left undescribed for now.  Speakers and headset are handled by the WCD9340
++ * on SLIMbus.
++ */
++
++/*
++ * The Windows panel XML (PNC357DB1.xml) says the backlight is PMIC-side, and
++ * that is right - but it is the LPG PWM, not the WLED.  This WLED block reads
++ * back as all zeroes, disabling its module does not turn the panel off, and no
++ * register in it changes with the backlight value, so it is not wired to the
++ * panel's LEDs on this board.  Keep it disabled: it only registers a second,
++ * useless "backlight" device that competes with the pwm-backlight one.
++ */
++&pmc8180c_wled {
++	status = "disabled";
++};
++
++&mdss {
++	status = "okay";
++};
++
++&mdss_dsi0 {
++	status = "okay";
++	vdda-supply = <&vreg_l3c_1p2>;
++
++	panel@0 {
++		compatible = "csot,pnc357db1-4";
++		reg = <0>;
++		vddi-supply = <&vreg_l12a_1p8>;
++		vdd1-supply = <&vreg_l1c_1p8>;
++		vdd-supply = <&vreg_l12a_1p8>;
++
++		/*
++		 * No backlight phandle: the panel is dimmed by the LPG PWM
++		 * (see the backlight node above), not by a PMIC WLED.
++		 */
++		reset-gpios = <&tlmm 116 GPIO_ACTIVE_LOW>;
++		enable-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@0 {
++				reg = <0>;
++
++				panel_in0: endpoint {
++					remote-endpoint = <&mdss_dsi0_out>;
++				};
++			};
++		};
++	};
++};
++
++&mdss_dsi0_out {
++	data-lanes = <0 1 2 3>;
++	remote-endpoint = <&panel_in0>;
++};
++
++&mdss_dsi0_phy {
++	status = "okay";
++	vdds-supply = <&vreg_l5e_0p88>;
++};
++
++// Device don't support eDP
++&edp_phy {
++	status = "disabled";
++};
++
++// Both PCIE2 and PCIE3 is dectected on Windows,
++// Lets enable them.
++
++// FIXME: Unknown Pin for PCIE2
++&pcie2 {
++	interrupts = <GIC_SPI 672 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 671 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 670 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 669 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 668 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 667 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 666 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 665 IRQ_TYPE_LEVEL_HIGH>;
++	interrupt-names = "msi0",
++			  "msi1",
++			  "msi2",
++			  "msi3",
++			  "msi4",
++			  "msi5",
++			  "msi6",
++			  "msi7";
++
++	perst-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
++
++	//wake-gpios = <&tlmm 104 GPIO_ACTIVE_HIGH>;
++
++	vddpe-3v3-supply = <&vreg_nvme_3p3>;
++
++	num-lanes = <2>;
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie2_default_state>;
++
++	status = "okay";
++
++	pcie@0 {
++		reset-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
++		phys = <&pcie2_phy>;
++	};
++};
++
++&pcie2_phy {
++	vdda-phy-supply = <&vreg_l5e_0p88>;
++	vdda-pll-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++};
++
++&pmc8180c_lpg {
++	status = "okay";
++};
++
++&qupv3_id_0 {
++	status = "okay";
++};
++
++&qupv3_id_1 {
++	status = "okay";
++};
++
++&qupv3_id_2 {
++	status = "okay";
++};
++
++&remoteproc_adsp {
++	memory-region = <&adsp_mem>;
++	firmware-name = "qcom/XIAOMI/BOOK124/qcadsp8180.mbn";
++
++	status = "okay";
++};
++
++&remoteproc_adsp_glink {
++	apr {
++		compatible = "qcom,apr-v2";
++		qcom,domain = <APR_DOMAIN_ADSP>;
++		qcom,glink-channels = "apr_audio_svc";
++		qcom,intents = <512 20>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		service@3 {
++			compatible = "qcom,q6core";
++			reg = <APR_SVC_ADSP_CORE>;
++			qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
++		};
++
++		q6afe: service@4 {
++			compatible = "qcom,q6afe";
++			reg = <APR_SVC_AFE>;
++			qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
++
++			q6afedai: dais {
++				compatible = "qcom,q6afe-dais";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				#sound-dai-cells = <1>;
++			};
++		};
++
++		q6asm: service@7 {
++			compatible = "qcom,q6asm";
++			reg = <APR_SVC_ASM>;
++			qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
++
++			q6asmdai: dais {
++				compatible = "qcom,q6asm-dais";
++				iommus = <&apps_smmu 0x1b21 0x0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				#sound-dai-cells = <1>;
++
++				dai@0 {
++					reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
++					direction = <Q6ASM_DAI_RX>;
++				};
++
++				dai@1 {
++					reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
++					direction = <Q6ASM_DAI_TX>;
++				};
++
++				dai@2 {
++					reg = <MSM_FRONTEND_DAI_MULTIMEDIA3>;
++					direction = <Q6ASM_DAI_RX>;
++				};
++			};
++		};
++
++		q6adm: service@8 {
++			compatible = "qcom,q6adm";
++			reg = <APR_SVC_ADM>;
++			qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
++
++			q6routing: routing {
++				compatible = "qcom,q6adm-routing";
++				#sound-dai-cells = <0>;
++			};
++		};
++	};
++};
++
++&remoteproc_cdsp {
++	memory-region = <&cdsp_mem>;
++	firmware-name = "qcom/XIAOMI/BOOK124/qccdsp8180.mbn";
++
++	status = "okay";
++};
++
++/*
++ * SLPI / SPSS.  This is where the Qualcomm Sensor Core runs, so it is what
++ * makes the accelerometer (and auto-rotate) available: with it up, the SSC's
++ * QMI service appears on QRTR and libssc + iio-sensor-proxy can drive it.
++ */
++&remoteproc_slpi {
++	memory-region = <&slpi_mem>;
++	firmware-name = "qcom/XIAOMI/BOOK124/qcslpi8180.mbn";
++
++	status = "okay";
++};
++
++&remoteproc_mpss {
++	memory-region = <&mpss_mem>;
++	firmware-name = "qcom/XIAOMI/BOOK124/qcmpss8180_nm.mbn";
++
++	status = "okay";
++};
++
++&soc {
++	slimbam: dma-controller@17184000 {
++		compatible = "qcom,bam-v1.7.4", "qcom,bam-v1.7.0";
++		reg = <0x0 0x17184000 0x0 0x2a000>;
++		interrupts = <GIC_SPI 164 IRQ_TYPE_LEVEL_HIGH>;
++		#dma-cells = <1>;
++		qcom,controlled-remotely;
++		qcom,ee = <1>;
++		qcom,num-ees = <4>;
++		num-channels = <23>;
++		iommus = <&apps_smmu 0x1b46 0x0>;
++	};
++
++	slim: slim-ngd@171c0000 {
++		compatible = "qcom,slim-ngd-v2.1.0";
++		reg = <0x0 0x171c0000 0x0 0x2c000>;
++		interrupts = <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
++		dmas = <&slimbam 3>, <&slimbam 4>;
++		dma-names = "rx", "tx";
++		iommus = <&apps_smmu 0x1b46 0x0>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		slim@1 {
++			reg = <1>;
++			#address-cells = <2>;
++			#size-cells = <0>;
++
++			wcd9340_ifd: ifd@0,0 {
++				compatible = "slim217,250";
++				reg = <0 0>;
++			};
++
++			wcd9340: codec@1,0 {
++				compatible = "slim217,250";
++				reg = <1 0>;
++				slim-ifc-dev = <&wcd9340_ifd>;
++
++				#sound-dai-cells = <1>;
++
++				interrupts-extended = <&tlmm 123 IRQ_TYPE_LEVEL_HIGH>;
++				interrupt-controller;
++				#interrupt-cells = <1>;
++
++				clock-names = "extclk";
++				clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
++
++				#clock-cells = <0>;
++				clock-frequency = <9600000>;
++				clock-output-names = "mclk";
++
++				pinctrl-0 = <&wcd_intr_default>, <&wcd_reset_default>;
++				pinctrl-names = "default";
++
++				reset-gpios = <&tlmm 143 GPIO_ACTIVE_HIGH>;
++
++				vdd-buck-sido-supply = <&vreg_s4a_1p8>;
++				vdd-buck-supply = <&vreg_s4a_1p8>;
++				vdd-tx-supply = <&vreg_s4a_1p8>;
++				vdd-rx-supply = <&vreg_s4a_1p8>;
++				vdd-io-supply = <&vreg_s4a_1p8>;
++
++				qcom,micbias1-microvolt = <1800000>;
++				qcom,micbias2-microvolt = <2850000>;
++				qcom,micbias3-microvolt = <2850000>;
++				qcom,micbias4-microvolt = <1800000>;
++				qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
++				qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
++				qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
++
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				wcdgpio: gpio-controller@42 {
++					compatible = "qcom,wcd9340-gpio";
++					gpio-controller;
++					#gpio-cells = <2>;
++					reg = <0x42 0x2>;
++
++					/*
++					 * The WSA881x driver only drives its SD_N
++					 * line once the amplifier has attached,
++					 * which is too late for it to answer bus
++					 * enumeration.  Hold the left amplifier
++					 * out of shutdown from the start so that
++					 * the SoundWire master can find it.
++					 *
++					 * SD_N is active low, so "output-low"
++					 * (logical 0) drives the line physically
++					 * high, i.e. the amplifier stays enabled.
++					 * The flags must match the amplifier's
++					 * powerdown-gpios or the driver would
++					 * invert the level.
++					 */
++					wsa-left-sd-n-hog {
++						gpio-hog;
++						gpios = <1 GPIO_ACTIVE_LOW>;
++						output-low;
++						line-name = "wsa-left-sd-n";
++					};
++				};
++
++				swm: soundwire@c85 {
++					compatible = "qcom,soundwire-v1.3.0";
++					reg = <0xc85 0x40>;
++					interrupts-extended = <&wcd9340 20>;
++
++					qcom,dout-ports = <6>;
++					qcom,din-ports = <2>;
++					qcom,ports-sinterval-low = /bits/ 8 <0x07 0x1f 0x3f 0x07 0x1f 0x3f 0x0f 0x0f>;
++					qcom,ports-offset1 = /bits/ 8 <0x01 0x02 0x0c 0x06 0x12 0x0d 0x07 0x0a>;
++					qcom,ports-offset2 = /bits/ 8 <0x00 0x00 0x1f 0x00 0x00 0x1f 0x00 0x00>;
++
++					#sound-dai-cells = <1>;
++					clocks = <&wcd9340>;
++					clock-names = "iface";
++					#address-cells = <2>;
++					#size-cells = <0>;
++
++					/*
++					 * Same speaker arrangement as the Lenovo
++					 * Flex 5G (SC8180X): the left amplifier
++					 * hangs off WCD9340 GPIO1 at SoundWire
++					 * unique ID 3 and the right one off GPIO2
++					 * at unique ID 4.  Both are wired into the
++					 * SLIM Playback DAI link.
++					 */
++					right_spkr: speaker@0,4 {
++						compatible = "sdw10217211000";
++						reg = <0 4>;
++						powerdown-gpios = <&wcdgpio 2 GPIO_ACTIVE_LOW>;
++						#thermal-sensor-cells = <0>;
++						sound-name-prefix = "SpkrRight";
++						#sound-dai-cells = <0>;
++					};
++
++					left_spkr: speaker@0,3 {
++						compatible = "sdw10217211000";
++						reg = <0 3>;
++						powerdown-gpios = <&wcdgpio 1 GPIO_ACTIVE_LOW>;
++						#thermal-sensor-cells = <0>;
++						sound-name-prefix = "SpkrLeft";
++						#sound-dai-cells = <0>;
++					};
++				};
++			};
++		};
++	};
++};
++
++&sdhc_2 {
++	cd-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
++	pinctrl-0 = <&sdc2_default_state>, <&sdc2_card_det_state>;
++	pinctrl-1 = <&sdc2_sleep_state>, <&sdc2_card_det_state>;
++	pinctrl-names = "default", "sleep";
++	vmmc-supply = <&vreg_l17e_2p96>;
++	vqmmc-supply = <&vreg_l6c_1p8_2p95>;
++	no-mmc;
++	no-sdio;
++
++	status = "okay";
++};
++
++&uart13 {
++	pinctrl-0 = <&uart13_state>;
++	pinctrl-names = "default";
++
++	status = "okay";
++
++	bluetooth {
++		compatible = "qcom,wcn3998-bt";
++
++		/* The controller is not provisioned with an address (no OTP and
++		 * nothing in secure world), so it boots with the placeholder
++		 * from the generic qca/crnv21.bin NVM and btqca leaves it
++		 * HCI_UNCONFIGURED, which keeps it out of the mgmt index list.
++		 * Give it a synthetic one; the kernel programs it into the chip
++		 * during every setup.  Little-endian, per
++		 * bindings/net/bluetooth/bluetooth-controller.yaml:
++		 * 14:16:9E:CE:AD:60
++		 */
++		local-bd-address = [60 ad ce 9e 16 14];
++
++		vddio-supply = <&vreg_s4a_1p8>;
++		vddxo-supply = <&vreg_l7a_1p8>;
++		vddrf-supply = <&vreg_l9a_1p3>;
++		vddch0-supply = <&vreg_l11c_3p3>;
++		max-speed = <3200000>;
++	};
++};
++
++&usb_mp {
++	status = "okay";
++};
++
++&usb_mp_hsphy0 {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_mp_hsphy1 {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy0 {
++	vdda-phy-supply = <&vreg_l3c_1p2>;
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy1 {
++	vdda-phy-supply = <&vreg_l3c_1p2>;
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++
++	status = "okay";
++};
++
++&usb_prim_hsphy {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_prim_qmpphy {
++	vdda-phy-supply = <&vreg_l3c_1p2>;
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++
++	orientation-switch;
++
++	status = "okay";
++};
++
++&usb_prim {
++	status = "okay";
++};
++
++&usb_prim_dwc3 {
++	dr_mode = "host";
++};
++
++&usb_prim_dwc3_hs {
++	remote-endpoint = <&pmic_glink_con0_hs>;
++};
++
++&usb_prim_qmpphy_out {
++	remote-endpoint = <&pmic_glink_con0_ss>;
++};
++
++&usb_sec_dwc3_hs {
++	remote-endpoint = <&pmic_glink_con1_hs>;
++};
++
++&usb_sec_hsphy {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_sec_qmpphy {
++	vdda-phy-supply = <&vreg_l3c_1p2>;
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++
++	orientation-switch;
++
++	status = "okay";
++};
++
++&usb_sec_qmpphy_out {
++	remote-endpoint = <&pmic_glink_con1_ss>;
++};
++
++&usb_sec {
++	status = "okay";
++};
++
++&usb_sec_dwc3 {
++	dr_mode = "host";
++};
++
++&wifi {
++	memory-region = <&wlan_mem>;
++
++	vdd-0.8-cx-mx-supply = <&vreg_l1e_0p75>;
++	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
++	vdd-1.3-rfa-supply = <&vreg_l9a_1p3>;
++	vdd-3.3-ch0-supply = <&vreg_l11c_3p3>;
++	vdd-3.3-ch1-supply = <&vreg_l10c_3p3>;
++
++	status = "okay";
++};
++
++&xo_board_clk {
++	clock-frequency = <38400000>;
++};
++
++&tlmm {
++	gpio-reserved-ranges = <0 4>, <47 4>, <126 4>;
++
++	hall_int_active_state: hall-int-active-state {
++		pins = "gpio121";
++		function = "gpio";
++
++		bias-disable;
++	};
++
++	i2c1_active: i2c1-active-state {
++		pins = "gpio114", "gpio115";
++		function = "qup1";
++
++		bias-pull-up = <1>;
++		drive-strength = <2>;
++	};
++
++	i2c2_active: i2c2-active-state {
++		pins = "gpio126", "gpio127";
++		function = "qup2";
++
++		bias-pull-up;
++		drive-strength = <2>;
++	};
++
++	ts_irq_active: ts-irq-active-state {
++		pins = "gpio122";
++		function = "gpio";
++
++		bias-pull-up;
++	};
++
++	wcd_reset_default: wcd-reset-default-state {
++		pins = "gpio143";
++		function = "gpio";
++
++		bias-disable;
++		drive-strength = <2>;
++	};
++
++	wcd_intr_default: wcd-intr-default-state {
++		pins = "gpio123";
++		function = "gpio";
++
++		bias-pull-down;
++		drive-strength = <2>;
++		input-enable;
++	};
++
++	i2c7_active: i2c7-active-state {
++		pins = "gpio98", "gpio99";
++		function = "qup7";
++
++		bias-pull-up;
++		drive-strength = <2>;
++	};
++
++	pcie2_default_state: pcie2-default-state {
++		clkreq-pins {
++			pins = "gpio176";
++			function = "pci_e2";
++			bias-pull-up;
++		};
++
++		reset-n-pins {
++			pins = "gpio102";
++			function = "gpio";
++
++			drive-strength = <2>;
++			output-low;
++			bias-pull-down;
++		};
++
++		wake-n-pins {
++			pins = "gpio104";
++			function = "gpio";
++
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	pcie3_default_state: pcie3-default-state {
++		clkreq-pins {
++			pins = "gpio179";
++			function = "pci_e3";
++			bias-pull-up;
++		};
++
++		reset-n-pins {
++			pins = "gpio178";
++			function = "gpio";
++
++			drive-strength = <2>;
++			output-low;
++			bias-pull-down;
++		};
++
++		wake-n-pins {
++			pins = "gpio180";
++			function = "gpio";
++
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	sdc2_default_state: sdc2-default-state {
++		clk-pins {
++			pins = "sdc2_clk";
++			drive-strength = <16>;
++			bias-disable;
++		};
++
++		cmd-pins {
++			pins = "sdc2_cmd";
++			drive-strength = <16>;
++			bias-pull-up;
++		};
++
++		data-pins {
++			pins = "sdc2_data";
++			drive-strength = <16>;
++			bias-pull-up;
++		};
++	};
++
++	sdc2_sleep_state: sdc2-sleep-state {
++		clk-pins {
++			pins = "sdc2_clk";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		cmd-pins {
++			pins = "sdc2_cmd";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++
++		data-pins {
++			pins = "sdc2_data";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	sdc2_card_det_state: sdc2-card-det-state {
++		pins = "gpio96";
++		function = "gpio";
++
++		drive-strength = <2>;
++		bias-pull-up;
++	};
++
++	usbprim_sbu_default: usbprim-sbu-state {
++		oe-n-pins {
++			pins = "gpio152";
++			function = "gpio";
++			bias-disable;
++			drive-strength = <16>;
++			output-high;
++		};
++
++		sel-pins {
++			pins = "gpio100";
++			function = "gpio";
++			bias-disable;
++			drive-strength = <16>;
++		};
++	};
++
++	usbsec_sbu_default: usbsec-sbu-state {
++		oe-n-pins {
++			pins = "gpio188";
++			function = "gpio";
++			bias-disable;
++			drive-strength = <16>;
++			output-high;
++		};
++
++		sel-pins {
++			pins = "gpio187";
++			function = "gpio";
++			bias-disable;
++			drive-strength = <16>;
++		};
++	};
++
++	uart13_state: uart13-state {
++		cts-pins {
++			pins = "gpio43";
++			function = "qup13";
++			bias-pull-down;
++		};
++
++		rts-tx-pins {
++			pins = "gpio44", "gpio45";
++			function = "qup13";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		rx-pins {
++			pins = "gpio46";
++			function = "qup13";
++			bias-pull-up;
++		};
++	};
++};
++
++/*
++ * Enable the PM8150 PON power key.  sc8180x-pmics.dtsi declares the node but
++ * leaves it disabled, and upstream enables it per board (3706bcfbdb8a,
++ * "arm64: dts: qcom: sc8180x: Enable the power key" - done for Primus and the
++ * Lenovo Flex 5G).  Without it there is no KEY_POWER input device at all, and
++ * since pm8941-pwrkey registers as a wakeup source by default
++ * (wakeup_source_default = true) there is also no way to wake the machine with
++ * the power button - which is what a suspend hang looks like from the outside.
++ */
++&pmc8180_pwrkey {
++	status = "okay";
++};
++
++/*
++ * Volume down is the PON's RESIN line, not a PMIC GPIO (ACPI pin 0x0001 on
++ * PM01, next to the power key at 0x0000).  sc8180x-pmics.dtsi declares it
++ * disabled, as upstream does for the PMIC nodes; the same enable exists on the
++ * Surface Duo (sm8150-microsoft-surface-duo.dts) for exactly this key.
++ */
++&pmc8180_resin {
++	status = "okay";
++	linux,code = <KEY_VOLUMEDOWN>;
++};
++
++/*
++ * Volume up is a PMIC GPIO.  Both readings below are declared for now, both as
++ * inputs with an internal pull-up - matching the Surface Pro X port, which
++ * drives its volume keys active-low with a pull-up.  If a key reports the
++ * opposite of what is pressed, the flag (or the bias) is what needs flipping.
++ */
++&pmc8180_1_gpios {
++	volume_up_6_default_state: volume-up-6-default-state {
++		pins = "gpio6";
++		function = "normal";
++		input-enable;
++		bias-pull-up;
++		qcom,drive-strength = <0>;
++	};
++
++	volume_up_5_default_state: volume-up-5-default-state {
++		pins = "gpio5";
++		function = "normal";
++		input-enable;
++		bias-pull-up;
++		qcom,drive-strength = <0>;
++	};
++};
++
++/*
++ * GPU DVFS: the full set this part advertises.
++ *
++ * sc8180x.dtsi carries the stock SC8180X table (…, 461, 500, 514 MHz).  The
++ * part in this board is binned higher, and its own ACPI tables
++ * ("ENGINE_PSTATE_SET" 0x02 / "GRAPHICS_FREQ_CONTROL" / "CORE_CLOCK") list
++ * further states — the profile Windows runs tops out at 670 MHz:
++ *
++ *     530 MHz @ NOM      (0x100)
++ *     595 MHz @ NOM_L1   (0x140)
++ *     670 MHz @ TURBO_L1 (0x1a0)
++ *
++ * Declaring them here is all that is needed: a6xx_hfi_send_perf_table() hands
++ * the whole OPP table to the GMU (frequencies and, per level, the GX rail arc
++ * vote derived from opp-level), so these become real firmware DVFS levels.
++ * Each of the three levels is already used by a stock state (405/461/514 MHz),
++ * so the RPMh "gfx.lvl" lookup cannot fail on them.  The 625 MHz (TURBO) and
++ * 718 MHz (TURBO_L2) states of the higher profiles are deliberately left out.
++ */
++&gpu_opp_table {
++	opp-530000000 {
++		opp-hz = /bits/ 64 <530000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
++	};
++
++	opp-595000000 {
++		opp-hz = /bits/ 64 <595000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
++	};
++
++	opp-670000000 {
++		opp-hz = /bits/ 64 <670000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
++	};
++};
++
++/*
++ * Debug aid: persistent RAM for oops/panic records, so a freeze that ends in a
++ * panic still leaves the kernel log behind.  That is the only way to see how
++ * far a hanging probe got, since journald cannot flush during a bus stall
++ * (read it after the reboot with `sudo cat /sys/fs/pstore/dmesg-ramoops-0`).
++ * To make a stall produce a panic rather than just a report:
++ *   echo 1 | sudo tee /proc/sys/kernel/panic_on_rcu_stall
++ */
++&reserved_memory {
++	ramoops@a0500000 {
++		compatible = "ramoops";
++		reg = <0x0 0xa0500000 0x0 0x100000>;
++		record-size = <0x40000>;
++		console-size = <0x40000>;
++		ftrace-size = <0x40000>;
++		pmsg-size = <0x20000>;
++		ecc-size = <16>;
++	};
++};

@@ -24,20 +24,39 @@ DBNAME=zcc-aur
 
 mkdir -p "$REPO"
 
+pkgname_of() {
+    # 从文件名解析包名：<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>
+    printf '%s\n' "${1##*/}" |
+        sed -E 's/-[^-]+-[^-]+-(any|aarch64)\.pkg\.tar\.[a-z0-9]+$//'
+}
+
 prune_old() {
-    # 同名包只留最新（按版本排序，取最后一个）
-    local names
-    names=$(find "$REPO" -maxdepth 1 -name '*.pkg.tar.*' -printf '%f\n' 2>/dev/null |
-            sed -E 's/-[^-]+-[^-]+-(any|aarch64)\.pkg\.tar\.[a-z0-9]+$//' | sort -u || true)
-    for n in $names; do
-        local list
-        list=$(find "$REPO" -maxdepth 1 -name "${n}-*.pkg.tar.*" | sort -V)
-        local keep
-        keep=$(echo "$list" | tail -1)
-        echo "$list" | while read -r f; do
-            [[ "$f" == "$keep" ]] || { echo "    移除旧版本: $(basename "$f")"; rm -f "$f"; }
-        done
-    done
+    # 同名包只留最新（按版本排序，取最后一个）。
+    #
+    # 分组必须按"每个文件自己解析出的包名"来做，不能用 ${n}-*.pkg.tar.* 这种
+    # 前缀 glob：linux-mibook-mainline 是 linux-mibook-mainline-headers 的前缀，
+    # 前缀 glob 会让前者的分组把后者的文件也吞进来，然后"保留最新的那个"把
+    # 内核包删掉、留下它的 -headers 兄弟包。
+    #
+    # 内层循环一律用进程替换喂数据：`find | while read` 会和外层 while 抢同一个
+    # stdin，把外层循环一次读空（第一组之后就再也不进循环了）。
+    local f n
+    local -A newest=()
+    while IFS= read -r f; do
+        n=$(pkgname_of "$f")
+        if [[ -z ${newest[$n]:-} ]] ||
+           [[ "$(printf '%s\n%s\n' "${newest[$n]}" "$f" | sort -V | tail -1)" == "$f" ]]; then
+            newest[$n]=$f
+        fi
+    done < <(find "$REPO" -maxdepth 1 -name '*.pkg.tar.*' -printf '%f\n' 2>/dev/null)
+
+    while IFS= read -r f; do
+        n=$(pkgname_of "$f")
+        if [[ "$f" != "${newest[$n]}" ]]; then
+            echo "    移除旧版本: $f"
+            rm -f "$REPO/$f"
+        fi
+    done < <(find "$REPO" -maxdepth 1 -name '*.pkg.tar.*' -printf '%f\n' 2>/dev/null)
 }
 
 make_db() {

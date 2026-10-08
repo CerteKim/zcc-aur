@@ -1,0 +1,240 @@
+From a084f8a78346146e2e9e2e1e93b85d60d9911042 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:04 +0800
+Subject: [PATCH] ASoC: qcom: sdm845: add the Xiaomi Book 12.4 sound card
+
+The board wires the WCD9340 (SLIMbus) and the two WSA881x speaker
+amplifiers the same way the SDM845 machines do.  Add the machine driver
+entries for the xiaomi,book-12.4 compatible: the WCD934x AIF links, the
+SoundWire speaker backend on the WSA macro and the front ends, with the
+16-bit sample format the codec path is verified with.
+---
+ sound/soc/qcom/sdm845.c | 135 +++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 126 insertions(+), 9 deletions(-)
+
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index 0ce9dff4dc52..2f52d8de23ad 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -4,7 +4,9 @@
+  */
+ 
+ #include <dt-bindings/sound/qcom,q6afe.h>
++#include <dt-bindings/sound/qcom,q6asm.h>
+ #include <linux/module.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <sound/core.h>
+ #include <sound/pcm.h>
+@@ -34,6 +36,7 @@
+ struct sdm845_snd_data {
+ 	struct snd_soc_jack jack;
+ 	bool jack_setup;
++	bool xiaomi_book_12_4;
+ 	bool slim_port_setup;
+ 	bool stream_prepared[AFE_PORT_MAX];
+ 	struct snd_soc_card *card;
+@@ -42,6 +45,15 @@ struct sdm845_snd_data {
+ 	uint32_t quat_tdm_clk_count;
+ };
+ 
++static const unsigned int sdm845_wcd934x_rx_ch[SLIM_MAX_RX_PORTS] = {
++	144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156
++};
++
++static const unsigned int sdm845_wcd934x_tx_ch[SLIM_MAX_TX_PORTS] = {
++	128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
++	140, 141, 142, 143
++};
++
+ static struct snd_soc_jack_pin sdm845_jack_pins[] = {
+ 	{
+ 		.pin = "Headphone Jack",
+@@ -61,6 +73,7 @@ static int sdm845_slim_snd_hw_params(struct snd_pcm_substream *substream,
+ 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 	struct snd_soc_dai *codec_dai;
++	struct sdm845_snd_data *pdata = snd_soc_card_get_drvdata(rtd->card);
+ 	u32 rx_ch[SLIM_MAX_RX_PORTS], tx_ch[SLIM_MAX_TX_PORTS];
+ 	u32 rx_ch_cnt = 0, tx_ch_cnt = 0;
+ 	int ret = 0, i;
+@@ -77,6 +90,27 @@ static int sdm845_slim_snd_hw_params(struct snd_pcm_substream *substream,
+ 			continue;
+ 		}
+ 
++		/*
++		 * The Xiaomi Book 12.4 ACDB does not hand the WCD934x a usable
++		 * SLIMbus channel map, so seed the standard WCD934x RX/TX port
++		 * assignment whenever the codec reports none.
++		 */
++		if (pdata->xiaomi_book_12_4) {
++			u32 channels = params_channels(params);
++
++			if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && !rx_ch_cnt) {
++				rx_ch_cnt = min_t(u32, channels,
++						   ARRAY_SIZE(sdm845_wcd934x_rx_ch));
++				memcpy(rx_ch, sdm845_wcd934x_rx_ch,
++				       rx_ch_cnt * sizeof(*rx_ch));
++			} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE && !tx_ch_cnt) {
++				tx_ch_cnt = min_t(u32, channels,
++						   ARRAY_SIZE(sdm845_wcd934x_tx_ch));
++				memcpy(tx_ch, sdm845_wcd934x_tx_ch,
++				       tx_ch_cnt * sizeof(*tx_ch));
++			}
++		}
++
+ 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+ 			ret = snd_soc_dai_set_channel_map(cpu_dai, 0, NULL,
+ 							  rx_ch_cnt, rx_ch);
+@@ -242,11 +276,6 @@ static int sdm845_dai_init(struct snd_soc_pcm_runtime *rtd)
+ 	 * TX1, TX2, TX3, TX4, TX5, TX6, TX7, TX8, TX9, TX10, TX11, TX12, TX13
+ 	 * TX14, TX15, TX16
+ 	 */
+-	unsigned int rx_ch[SLIM_MAX_RX_PORTS] = {144, 145, 146, 147, 148, 149,
+-					150, 151, 152, 153, 154, 155, 156};
+-	unsigned int tx_ch[SLIM_MAX_TX_PORTS] = {128, 129, 130, 131, 132, 133,
+-					    134, 135, 136, 137, 138, 139,
+-					    140, 141, 142, 143};
+ 	int rval, i;
+ 
+ 
+@@ -293,12 +322,39 @@ static int sdm845_dai_init(struct snd_soc_pcm_runtime *rtd)
+ 		if (pdata->slim_port_setup || !link->no_pcm)
+ 			return 0;
+ 
++		if (pdata->xiaomi_book_12_4) {
++			/*
++			 * The WCD934x RX digital volumes are signed dB controls:
++			 * raw 0 is -84 dB, raw 84 is 0 dB and raw 124 is +40 dB,
++			 * and the UCM exposes them as the speaker and headphone
++			 * playback volumes.  With the backend format fixed (see
++			 * sdm845_be_hw_params_fixup) the signal arrives at full
++			 * scale, so 0 dB is the correct maximum and everything
++			 * above it is pure overdrive -- the desktop mixer, or a
++			 * stale /var/lib/alsa/asound.state, would otherwise be
++			 * able to square off whatever the codec receives.
++			 * sc8280xp.c caps the WSA macro volumes for the same
++			 * reason.
++			 *
++			 * The signed-to-unsigned offset means the limit is
++			 * expressed in the same 0..124 space userspace sees, so
++			 * 84 is exactly 0 dB.  Do not add this before the format
++			 * is right: while SLIMBUS_0_RX was pinned to S24_LE the
++			 * path was 20-48 dB down and needed the full +40 dB, and
++			 * capping it at 0 dB made the speakers completely silent.
++			 */
++			snd_soc_limit_volume(card, "RX1 Digital Volume", 84);
++			snd_soc_limit_volume(card, "RX2 Digital Volume", 84);
++			snd_soc_limit_volume(card, "RX7 Digital Volume", 84);
++			snd_soc_limit_volume(card, "RX8 Digital Volume", 84);
++		}
++
+ 		for_each_rtd_codec_dais(rtd, i, codec_dai) {
+ 			rval = snd_soc_dai_set_channel_map(codec_dai,
+-							  ARRAY_SIZE(tx_ch),
+-							  tx_ch,
+-							  ARRAY_SIZE(rx_ch),
+-							  rx_ch);
++							  ARRAY_SIZE(sdm845_wcd934x_tx_ch),
++							  sdm845_wcd934x_tx_ch,
++							  ARRAY_SIZE(sdm845_wcd934x_rx_ch),
++							  sdm845_wcd934x_rx_ch);
+ 			if (rval != 0 && rval != -ENOTSUPP)
+ 				return rval;
+ 
+@@ -485,6 +541,45 @@ static int sdm845_snd_hw_free(struct snd_pcm_substream *substream)
+ 	return qcom_snd_sdw_hw_free(substream, &data->stream_prepared[cpu_dai->id]);
+ }
+ 
++/*
++ * The ADSP only preserves the level on the WCD9340 SLIMbus playback backends
++ * when the *front end* is 16-bit.  Measured on the Xiaomi Book 12.4 with the
++ * codec gain held fixed, the same -12 dBFS tone played straight to hw:0,0:
++ *
++ *   front end S16_LE -> clearly audible
++ *   front end S24_LE -> 20-48 dB down, inaudible at 0 dB
++ *
++ * Pinning the backend (sdm845_be_hw_params_fixup) is not enough on its own:
++ * the front ends advertise S16/S24/S32 and ACP picks S24_LE from that, so
++ * every player still landed on the quiet path.  Narrow the front end too.
++ * Playback only -- the capture direction has its own, separate quirk.
++ */
++static int sdm845_fe_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct sdm845_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
++
++	if (!data->xiaomi_book_12_4 ||
++	    substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
++		return 0;
++
++	switch (cpu_dai->id) {
++	case MSM_FRONTEND_DAI_MULTIMEDIA1 ... MSM_FRONTEND_DAI_MULTIMEDIA8:
++		break;
++	default:
++		return 0;
++	}
++
++	return snd_pcm_hw_constraint_mask64(substream->runtime,
++					    SNDRV_PCM_HW_PARAM_FORMAT,
++					    1ULL << SNDRV_PCM_FORMAT_S16_LE);
++}
++
++static const struct snd_soc_ops sdm845_fe_ops = {
++	.startup = sdm845_fe_startup,
++};
++
+ static const struct snd_soc_ops sdm845_be_ops = {
+ 	.hw_params = sdm845_snd_hw_params,
+ 	.hw_free = sdm845_snd_hw_free,
+@@ -504,6 +599,22 @@ static int sdm845_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+ 
+ 	rate->min = rate->max = DEFAULT_SAMPLE_RATE_48K;
+ 	channels->min = channels->max = 2;
++	snd_mask_none(fmt);
++
++	/*
++	 * S16_LE, i.e. the generic sdm845 behaviour.
++	 *
++	 * This used to pin SLIMBUS_0_RX to S24_LE for the Xiaomi Book 12.4 on
++	 * the strength of the Windows ACDB declaring the built-in speaker
++	 * topology as 48 kHz/24-bit.  That reading is wrong end to end:
++	 * measured with the WCD934x RX digital volume held at a fixed +20 dB,
++	 * an S16_LE front end is clearly audible while an S24_LE one is not,
++	 * so the S24_LE path throws away 20-48 dB -- one byte of
++	 * misalignment.  PipeWire picks S24_LE from the advertised
++	 * constraints, so every player ended up on the quiet path, and the
++	 * only way to get sound out was to push the RX digital volume to its
++	 * +40 dB maximum, which then clipped on loud material.
++	 */
+ 	snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S16_LE);
+ 
+ 	return 0;
+@@ -531,6 +642,8 @@ static void sdm845_add_ops(struct snd_soc_card *card)
+ 		if (link->no_pcm == 1) {
+ 			link->ops = &sdm845_be_ops;
+ 			link->be_hw_params_fixup = sdm845_be_hw_params_fixup;
++		} else {
++			link->ops = &sdm845_fe_ops;
+ 		}
+ 		link->init = sdm845_dai_init;
+ 	}
+@@ -552,6 +665,9 @@ static int sdm845_snd_platform_probe(struct platform_device *pdev)
+ 	if (!data)
+ 		return -ENOMEM;
+ 
++	data->xiaomi_book_12_4 = of_device_is_compatible(dev->of_node,
++							 "xiaomi,book-12.4-sndcard");
++
+ 	card->driver_name = DRIVER_NAME;
+ 	card->dapm_widgets = sdm845_snd_widgets;
+ 	card->num_dapm_widgets = ARRAY_SIZE(sdm845_snd_widgets);
+@@ -572,6 +688,7 @@ static int sdm845_snd_platform_probe(struct platform_device *pdev)
+ }
+ 
+ static const struct of_device_id sdm845_snd_device_id[]  = {
++	{ .compatible = "xiaomi,book-12.4-sndcard" },
+ 	{ .compatible = "qcom,sdm845-sndcard" },
+ 	/* Do not grow the list for compatible devices */
+ 	{ .compatible = "qcom,db845c-sndcard" },

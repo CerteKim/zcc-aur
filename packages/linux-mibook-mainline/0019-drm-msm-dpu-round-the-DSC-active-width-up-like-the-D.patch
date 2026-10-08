@@ -1,0 +1,41 @@
+From 139085c1aa36c772bd6ac7c3956f0cdd6e3a57f8 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 12:08:03 +0800
+Subject: [PATCH] drm/msm/dpu: round the DSC active width up like the DSI host
+ does
+
+drm_mode_to_intf_timing_params() truncates the compression-ratio scaled
+active width for DSI DSC panels:
+
+	timing->width = timing->width * bpp / (bpc * 3);
+
+The DSI host derives the hdisplay it programs for the very same line with
+DIV_ROUND_UP() in dsi_timing_setup().  Whenever the compressed line does
+not divide evenly, the two sides disagree by one pclk unit and the DPU
+interface is programmed one unit short of what the DSI transmits.  On the
+CSOT PNC357DB1-4 (1600 px wide, 8 bpc, 8 bpp, single DSC slice) that is
+533 against 534, so the DSI FIFO underflows, no valid frame reaches the
+panel and the screen stays black although the backlight is on.
+
+Use DIV_ROUND_UP() here as the 6.18 bring-up tree did, so both sides
+program the same width.
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
+index ba810f26ea30..e1007aeb9f93 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
+@@ -134,8 +134,9 @@ static void drm_mode_to_intf_timing_params(
+ 		 * TODO: replace drm_dsc_get_bpp_int with logic to handle
+ 		 * fractional part if there is fraction
+ 		 */
+-		timing->width = timing->width * drm_dsc_get_bpp_int(dsc) /
+-				(dsc->bits_per_component * 3);
++		timing->width = DIV_ROUND_UP(timing->width *
++				drm_dsc_get_bpp_int(dsc),
++				dsc->bits_per_component * 3);
+ 		timing->xres = timing->width;
+ 		timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+ 	}

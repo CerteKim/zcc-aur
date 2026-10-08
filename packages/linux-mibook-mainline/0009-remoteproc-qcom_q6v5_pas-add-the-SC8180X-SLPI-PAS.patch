@@ -1,0 +1,24 @@
+From d2db15bb80e19cf41538b56881189911f41c5a0c Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:03 +0800
+Subject: [PATCH] remoteproc: qcom_q6v5_pas: add the SC8180X SLPI PAS
+
+The SLPI on SC8180X uses the SDM845 resource layout.  The SSC sensors
+(the accelerometer, ALS and proximity) are brought up by the SLPI, which
+without this entry never probes.
+---
+ drivers/remoteproc/qcom_q6v5_pas.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index 808e9609988d..57dd2792f98f 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -1603,6 +1603,7 @@ static const struct of_device_id qcom_pas_of_match[] = {
+ 	{ .compatible = "qcom,sc8180x-adsp-pas", .data = &sm8150_adsp_resource },
+ 	{ .compatible = "qcom,sc8180x-cdsp-pas", .data = &sm8150_cdsp_resource },
+ 	{ .compatible = "qcom,sc8180x-mpss-pas", .data = &sc8180x_mpss_resource },
++	{ .compatible = "qcom,sc8180x-slpi-pas", .data = &sdm845_slpi_resource_init },
+ 	{ .compatible = "qcom,sc8280xp-adsp-pas", .data = &sm8250_adsp_resource },
+ 	{ .compatible = "qcom,sc8280xp-nsp0-pas", .data = &sc8280xp_nsp0_resource },
+ 	{ .compatible = "qcom,sc8280xp-nsp1-pas", .data = &sc8280xp_nsp1_resource },

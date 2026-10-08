@@ -1,0 +1,33 @@
+From b307a4509e621a988d17d92ef08696f22e4639b9 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:03 +0800
+Subject: [PATCH] clk: qcom: videocc-sm8150: match qcom,sc8180x-videocc
+
+SC8180X shares the SM8150 VIDEOCC layout (the IRIS core clocks, the venus
+and vcodec0 GDSCs and the MVSC reset) and its device tree has carried the
+qcom,sc8180x-videocc compatible since the node was added, but the driver
+only matched the SM8150 string, so nothing bound.
+---
+ drivers/clk/qcom/videocc-sm8150.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/clk/qcom/videocc-sm8150.c b/drivers/clk/qcom/videocc-sm8150.c
+index 3024f6fc89c8..c96c37c4d4df 100644
+--- a/drivers/clk/qcom/videocc-sm8150.c
++++ b/drivers/clk/qcom/videocc-sm8150.c
+@@ -234,6 +234,15 @@ static const struct qcom_cc_desc video_cc_sm8150_desc = {
+ 
+ static const struct of_device_id video_cc_sm8150_match_table[] = {
+ 	{ .compatible = "qcom,sm8150-videocc" },
++	/*
++	 * SC8180X shares this VIDEOCC layout (IRIS core clocks, the venus and
++	 * vcodec0 GDSCs and the MVSC reset).  Its device tree has carried the
++	 * "qcom,sc8180x-videocc" compatible since the video clock controller
++	 * node was added, but the driver only ever matched the SM8150 string,
++	 * so nothing bound and the video codec never got its clocks and power
++	 * domains.
++	 */
++	{ .compatible = "qcom,sc8180x-videocc" },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, video_cc_sm8150_match_table);

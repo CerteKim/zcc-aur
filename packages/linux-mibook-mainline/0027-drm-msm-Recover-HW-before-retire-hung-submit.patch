@@ -1,0 +1,43 @@
+From 40df0b50e1eedf35054d2688c1c4b9a75caf2f3e Mon Sep 17 00:00:00 2001
+From: Jie Zhang <jie.zhang@oss.qualcomm.com>
+Date: Thu, 8 Oct 2026 20:22:48 +0800
+Subject: [PATCH] drm/msm: Recover HW before retire hung submit
+
+During recovery, it is not safe to retire the hung submit before we
+recover the GPU.  Retiring the submit triggers BO free and that can
+result in GPU pagefaults since the GPU may be actively accessing those
+BOs.
+
+To fix this, retire the submits after gpu recovery is complete in
+recover_worker().
+
+Fixes: 1a370be9ac51 ("drm/msm: restart queued submits after hang")
+Link: https://lore.kernel.org/all/20260605-assorted-fixes-june-v1-2-2caa04f7287c@oss.qualcomm.com/
+Signed-off-by: Jie Zhang <jie.zhang@oss.qualcomm.com>
+Signed-off-by: Akhil P Oommen <akhilpo@oss.qualcomm.com>
+[certe: cherry-picked onto v7.2 for the Xiaomi Book S 12.4.  The fault
+ flood this produces is what blocks the GMU (see the "Wait for MMU
+ devcoredump when waiting for GMU" workaround) - the GPU stops consuming
+ HFI messages and its registers stay readable.  Drop once upstream.]
+---
+ drivers/gpu/drm/msm/msm_gpu.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/msm_gpu.c b/drivers/gpu/drm/msm/msm_gpu.c
+index 18ed00e5f143..9ac7740a87f0 100644
+--- a/drivers/gpu/drm/msm/msm_gpu.c
++++ b/drivers/gpu/drm/msm/msm_gpu.c
+@@ -552,11 +552,11 @@ static void recover_worker(struct kthread_work *work)
+ 		msm_update_fence(ring->fctx, fence);
+ 	}
+ 
++	gpu->funcs->recover(gpu);
++
+ 	/* retire completed submits, plus the one that hung: */
+ 	retire_submits(gpu);
+ 
+-	gpu->funcs->recover(gpu);
+-
+ 	/*
+ 	 * Replay all remaining submits starting with highest priority
+ 	 * ring

@@ -1,0 +1,60 @@
+From 62ea34bc7b48ae43cad0e4aed54decc5466b6f28 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 17:50:52 +0800
+Subject: [PATCH] drm/msm/a6xx: do not gate the GMU clocks from the GPU PM
+ paths
+
+15cc59ac954e ("drm/msm/a6xx: Add support for Adreno 612") added
+
+	clk_bulk_disable_unprepare(gmu->nr_clocks, gmu->clocks);
+
+to a6xx_pm_suspend() and the matching clk_bulk_prepare_enable() to
+a6xx_pm_resume().
+
+The GMU is its own runtime-PM device (2c6a000.gmu plus its genpd
+wrappers): its clocks are prepared/enabled by a6xx_gmu_resume() and
+released by a6xx_gmu_stop() -> a6xx_hfi_stop().  Disabling them a second
+time from the *GPU's* suspend path drops the GMU's clock while the GMU
+device is still runtime-active, so the CM3 core stops executing while its
+register block (GDSC powered) stays readable.
+
+That is exactly the state seen on the Xiaomi Book S 12.4 (SC8180X, a680)
+a few seconds after GNOME starts rendering: the HFI command queue still
+holds an unconsumed GX_BW_PERF_VOTE (read_index frozen), the response
+queue is empty, yet the GPU and GMU registers read back fine - the GMU
+simply never looks at the queue again and the watchdog fires ~5s later.
+6.18, which does not touch the GMU clocks here, runs GNOME on the same
+board without any of this.
+
+The GMU's clocks are owned by the GMU device, so leave them to it.
+Revert this hunk if Adreno 612 turns out to need the programming - that
+board is not this one.
+---
+ drivers/gpu/drm/msm/adreno/a6xx_gpu.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+index b723c87d8481..1515c7c92d5f 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -2191,12 +2191,6 @@ static int a6xx_pm_resume(struct msm_gpu *gpu)
+ 	if (ret)
+ 		goto err_put_gxpd;
+ 
+-	ret = clk_bulk_prepare_enable(gmu->nr_clocks, gmu->clocks);
+-	if (ret) {
+-		clk_bulk_disable_unprepare(gpu->nr_clocks, gpu->grp_clks);
+-		goto err_put_gxpd;
+-	}
+-
+ 	if (adreno_is_a619_holi(adreno_gpu))
+ 		a6xx_sptprac_enable(gmu);
+ 
+@@ -2269,7 +2263,6 @@ static int a6xx_pm_suspend(struct msm_gpu *gpu)
+ 		a6xx_sptprac_disable(gmu);
+ 
+ 	clk_bulk_disable_unprepare(gpu->nr_clocks, gpu->grp_clks);
+-	clk_bulk_disable_unprepare(gmu->nr_clocks, gmu->clocks);
+ 
+ 	pm_runtime_put_sync(gmu->gxpd);
+ 	dev_pm_opp_set_opp(&gpu->pdev->dev, NULL);

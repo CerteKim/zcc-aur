@@ -1,0 +1,44 @@
+From 8ee01a317b74e23a6283ce1d69097ae387d1de10 Mon Sep 17 00:00:00 2001
+From: Shivam Rawat <shivrawa@qti.qualcomm.com>
+Date: Thu, 8 Oct 2026 20:22:48 +0800
+Subject: [PATCH] drm/msm/a6xx: Fix stale rpmh votes after suspend
+
+There are stale RPMH votes (BCM votes) observed after GMU suspend. This
+is because the rpmh stop sequences are skipped during gmu suspend. Fix
+this and also move GMU to reset state to avoid any further activity.
+
+Fixes: f248d5d5159a ("drm/msm/a6xx: Fix PDC sleep sequence")
+Link: https://lore.kernel.org/all/20260605-assorted-fixes-june-v1-1-2caa04f7287c@oss.qualcomm.com/
+Signed-off-by: Shivam Rawat <shivrawa@qti.qualcomm.com>
+Signed-off-by: Akhil P Oommen <akhilpo@oss.qualcomm.com>
+[certe: cherry-picked onto v7.2 for the Xiaomi Book S 12.4 (SC8180X, a680).
+ The inverted test made a6xx_rpmh_stop() skip the whole stop sequence on
+ every GMU suspend, leaving the GPU's RPMh/BCM votes stale across the
+ suspend/resume cycles the compositor triggers.  Drop once upstream.]
+---
+ drivers/gpu/drm/msm/adreno/a6xx_gmu.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+index 2e5d7b53a0c3..a2f6918c4f7f 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -642,7 +642,7 @@ static void a6xx_rpmh_stop(struct a6xx_gmu *gmu)
+ 	int ret;
+ 	u32 val;
+ 
+-	if (test_and_clear_bit(GMU_STATUS_FW_START, &gmu->status))
++	if (!test_and_clear_bit(GMU_STATUS_FW_START, &gmu->status))
+ 		return;
+ 
+ 	if (adreno_is_a840(adreno_gpu))
+@@ -1465,6 +1465,9 @@ static void a6xx_gmu_shutdown(struct a6xx_gmu *gmu)
+ 	/* Stop the interrupts and mask the hardware */
+ 	a6xx_gmu_irq_disable(gmu);
+ 
++	/* Halt the gmu cm3 core */
++	gmu_write(gmu, REG_A6XX_GMU_CM3_SYSRESET, 1);
++
+ 	/* Tell RPMh to power off the GPU */
+ 	a6xx_rpmh_stop(gmu);
+ 

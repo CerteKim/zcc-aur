@@ -1,0 +1,36 @@
+grub_note() {
+    cat <<'NOTE'
+
+    note: this is a kernel under a name of its own:
+              /boot/vmlinuz-linux-mibook-mainline
+              /boot/initramfs-linux-mibook-mainline.img
+              /boot/dtb/linux-mibook-mainline/qcom/sc8180x-xiaomi-book-12.4.dtb
+
+          GRUB does not know about it yet.  Copy your linux-mibook menu entry
+          in /boot/grub/grub.cfg (or /etc/grub.d/40_custom) and point its
+          linux/initrd/devicetree lines at the three paths above before
+          rebooting, or let a later `grub-mkconfig` pick the entry up once it
+          has been added to the configuration.
+NOTE
+}
+
+post_install() {
+    grub_note
+}
+
+post_upgrade() {
+    if findmnt --fstab -uno SOURCE /boot &>/dev/null && ! mountpoint -q /boot; then
+        echo "WARNING: /boot appears to be a separate partition but is not mounted."
+    fi
+    grub_note
+}
+
+post_remove() {
+    # The package's own name: the preset builds
+    # /boot/initramfs-linux-mibook-mainline.img and declares a 'fallback'
+    # preset without a fallback_image, so mkinitcpio skips the second image.
+    # Remove both names anyway, in case the fallback image appears later.
+    rm -f boot/initramfs-linux-mibook-mainline.img
+    rm -f boot/initramfs-linux-mibook-mainline-fallback.img
+    rm -f boot/vmlinuz-linux-mibook-mainline
+}

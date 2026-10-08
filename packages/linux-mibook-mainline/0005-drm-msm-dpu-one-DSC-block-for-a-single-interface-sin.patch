@@ -1,0 +1,32 @@
+From 5e815ee81b80d8f767c9f08ec82b0d237c91e181 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:00 +0800
+Subject: [PATCH] drm/msm/dpu: one DSC block for a single-interface,
+ single-slice topology
+
+A panel driven from a single interface with a single DSC slice needs one
+DSC block, not two.  The old condition allocated two blocks whenever the
+catalog had two or more of them, which is the case on SC8180X and leaves
+the encoder with a topology the DSI link cannot consume.
+
+The CSOT PNC357DB1-4 of the Xiaomi Book S 12.4 is such a panel.
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+index 778e231d4967..c9423f132f3a 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+@@ -686,7 +686,10 @@ void dpu_encoder_update_topology(struct drm_encoder *drm_enc,
+ 		 */
+ 		WARN(topology->num_intf > 2,
+ 		     "DSC topology cannot support more than 2 interfaces\n");
+-		if (topology->num_intf >= 2 || dpu_kms->catalog->dsc_count >= 2)
++		/* Single-interface panels with one DSC slice need one DSC block. */
++		if (topology->num_intf == 1 && dsc->slice_count == 1)
++			topology->num_dsc = 1;
++		else if (topology->num_intf >= 2 || dpu_kms->catalog->dsc_count >= 2)
+ 			topology->num_dsc = 2;
+ 		else
+ 			topology->num_dsc = 1;

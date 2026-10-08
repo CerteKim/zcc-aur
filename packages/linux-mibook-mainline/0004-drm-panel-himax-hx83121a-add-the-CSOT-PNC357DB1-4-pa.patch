@@ -1,0 +1,395 @@
+From f8f081a014d51429450a5daeb5cddd66b4e766bc Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:00 +0800
+Subject: [PATCH] drm/panel: himax-hx83121a: add the CSOT PNC357DB1-4 panel
+
+The Xiaomi Book S 12.4 carries a CSOT PNC357DB1-4 behind a Himax
+HX83121A.  Unlike the PPC357DB1-4 relatives, all 1600 pixels travel on
+DSI0 in a single DSC slice, the panel is brought up by the short
+ACPI/GPU0 sequence, it needs display-on after the PPS is in place, and
+it is powered from vdd1/vddi/vdd with the backlight supply switched by
+the driver.
+
+ - add a csot,pnc357db1-4 descriptor and its DSC configuration;
+ - make the regulator set per-panel instead of per-driver;
+ - support the optional enable-gpios and the backlight supply;
+ - add display-on for panels whose init sequence does not do it;
+ - keep the full vendor sequence reachable via pnc_full_init=1.
+
+The PPC357DB1-4 panels keep their existing behaviour: enable_dsc now
+defaults to true, which is what all panels supported here need.
+---
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 219 +++++++++++++++++--
+ 1 file changed, 198 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
+index 8b11fce4c7c5..096aa8d99fe5 100644
+--- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
++++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
+@@ -22,9 +22,25 @@
+ 
+ #include <video/mipi_display.h>
+ 
+-static bool enable_dsc;
++/*
++ * The panels supported here all require DSC for their full resolution; the
++ * Xiaomi Book S 12.4 panel in particular cannot be driven without it.  Keep
++ * the parameter so single-link, non-DSC operation stays testable.
++ */
++static bool enable_dsc = true;
+ module_param(enable_dsc, bool, 0);
+-MODULE_PARM_DESC(enable_dsc, "enable DSC on the panel (default: false)");
++MODULE_PARM_DESC(enable_dsc, "enable DSC on the panel (default: true)");
++
++/*
++ * The CSOT PNC357DB1-4 of the Xiaomi Book S 12.4 is brought up by the
++ * minimal ACPI/GPU0 sequence by default.  The full vendor sequence, which
++ * the Himax HX83121A PPC357DB1-4 relatives use, can be selected instead
++ * with pnc_full_init=1 for testing.
++ */
++static bool pnc_full_init;
++module_param(pnc_full_init, bool, 0);
++MODULE_PARM_DESC(pnc_full_init,
++		 "use the full vendor init sequence for csot,pnc357db1-4");
+ 
+ struct himax {
+ 	struct drm_panel panel;
+@@ -32,8 +48,11 @@ struct himax {
+ 	const struct panel_desc *desc;
+ 	struct drm_dsc_config dsc;
+ 	struct gpio_desc *reset_gpio;
++	struct gpio_desc *enable_gpio;
+ 	struct regulator_bulk_data *supplies;
++	struct regulator *bl_supply;
+ 	struct backlight_device *backlight;
++	bool backlight_enabled;
+ };
+ 
+ struct panel_desc {
+@@ -43,6 +62,8 @@ struct panel_desc {
+ 	unsigned int lanes;
+ 	enum mipi_dsi_pixel_format format;
+ 	unsigned long mode_flags;
++	const struct regulator_bulk_data *supplies;
++	unsigned int num_supplies;
+ 	const struct drm_dsc_config *dsc_cfg;
+ 	const struct drm_display_mode *dsc_modes;
+ 	unsigned int num_dsc_modes;
+@@ -55,6 +76,7 @@ struct panel_desc {
+ 
+ 	bool is_dual_dsi;
+ 	bool has_dcs_backlight;
++	bool needs_display_on;
+ };
+ 
+ static const struct regulator_bulk_data himax_supplies[] = {
+@@ -63,6 +85,13 @@ static const struct regulator_bulk_data himax_supplies[] = {
+ 	{ .supply = "avee" },
+ };
+ 
++/* Supplies of the CSOT PNC357DB1-4 as wired on the Xiaomi Book S 12.4 */
++static const struct regulator_bulk_data pnc357db1_4_supplies[] = {
++	{ .supply = "vdd1" },
++	{ .supply = "vddi" },
++	{ .supply = "vdd" },
++};
++
+ static inline struct himax *to_himax(struct drm_panel *panel)
+ {
+ 	return container_of(panel, struct himax, panel);
+@@ -90,11 +119,13 @@ static int himax_prepare(struct drm_panel *panel)
+ 	struct drm_dsc_picture_parameter_set pps;
+ 	int ret;
+ 
+-	ret = regulator_bulk_enable(ARRAY_SIZE(himax_supplies),
+-				    ctx->supplies);
++	ret = regulator_bulk_enable(ctx->desc->num_supplies, ctx->supplies);
+ 	if (ret < 0)
+ 		return ret;
+ 
++	if (ctx->enable_gpio)
++		gpiod_set_value_cansleep(ctx->enable_gpio, 1);
++
+ 	himax_reset(ctx);
+ 
+ 	if (enable_dsc && ctx->desc->init_sequence_dsc)
+@@ -105,9 +136,10 @@ static int himax_prepare(struct drm_panel *panel)
+ 		ret = -EOPNOTSUPP;
+ 
+ 	if (ret < 0) {
++		if (ctx->enable_gpio)
++			gpiod_set_value_cansleep(ctx->enable_gpio, 0);
+ 		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+-		regulator_bulk_disable(ARRAY_SIZE(himax_supplies),
+-				       ctx->supplies);
++		regulator_bulk_disable(ctx->desc->num_supplies, ctx->supplies);
+ 		return ret;
+ 	}
+ 
+@@ -117,6 +149,20 @@ static int himax_prepare(struct drm_panel *panel)
+ 		mipi_dsi_compression_mode_multi(&dsi_ctx, true);
+ 	}
+ 
++	/*
++	 * The ACPI/GPU0 sequence of the Xiaomi Book S 12.4 panel does not turn
++	 * the display on itself, it has to happen after the PPS is in place.
++	 */
++	if (ctx->desc->needs_display_on) {
++		mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++		mipi_dsi_msleep(&dsi_ctx, 120);
++		if (dsi_ctx.accum_err) {
++			dev_err(&dsi->dev, "failed to turn display on: %d\n",
++				dsi_ctx.accum_err);
++			return dsi_ctx.accum_err;
++		}
++	}
++
+ 	return backlight_enable(ctx->backlight);
+ }
+ 
+@@ -140,8 +186,10 @@ static int himax_unprepare(struct drm_panel *panel)
+ 	if (ret < 0)
+ 		dev_err(dev, "panel failed to off: %d\n", ret);
+ 
++	if (ctx->enable_gpio)
++		gpiod_set_value_cansleep(ctx->enable_gpio, 0);
+ 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+-	regulator_bulk_disable(ARRAY_SIZE(himax_supplies), ctx->supplies);
++	regulator_bulk_disable(ctx->desc->num_supplies, ctx->supplies);
+ 
+ 	return 0;
+ }
+@@ -192,10 +240,31 @@ static const struct drm_panel_funcs himax_panel_funcs = {
+ 
+ static int himax_bl_update_status(struct backlight_device *bl)
+ {
+-	struct mipi_dsi_device *dsi = bl_get_data(bl);
++	struct himax *ctx = bl_get_data(bl);
+ 	u16 brightness = backlight_get_brightness(bl);
++	int ret = 0;
++
++	if (!brightness) {
++		if (ctx->backlight_enabled)
++			ret = regulator_disable(ctx->bl_supply);
++		if (ret)
++			return ret;
++
++		ctx->backlight_enabled = false;
++
++		return 0;
++	}
++
+ 	/* TODO: brightness to raw map table */
+-	return mipi_dsi_dcs_set_display_brightness_large(dsi, brightness);
++	if (!ctx->backlight_enabled)
++		ret = regulator_enable(ctx->bl_supply);
++	if (ret)
++		return ret;
++
++	ctx->backlight_enabled = true;
++
++	return mipi_dsi_dcs_set_display_brightness_large(to_primary_dsi(ctx),
++							 brightness);
+ }
+ 
+ static const struct backlight_ops himax_bl_ops = {
+@@ -204,9 +273,9 @@ static const struct backlight_ops himax_bl_ops = {
+ };
+ 
+ static struct backlight_device *
+-himax_create_backlight(struct mipi_dsi_device *dsi)
++himax_create_backlight(struct himax *ctx)
+ {
+-	struct device *dev = &dsi->dev;
++	struct device *dev = &to_primary_dsi(ctx)->dev;
+ 	const struct backlight_properties props = {
+ 		.type = BACKLIGHT_RAW,
+ 		.brightness = 512,
+@@ -214,7 +283,7 @@ himax_create_backlight(struct mipi_dsi_device *dsi)
+ 		.scale = BACKLIGHT_SCALE_NON_LINEAR,
+ 	};
+ 
+-	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
++	return devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
+ 					      &himax_bl_ops, &props);
+ }
+ 
+@@ -543,6 +612,36 @@ static struct drm_dsc_config ppc357db1_4_dsc_cfg = {
+ 	.block_pred_enable = true,
+ };
+ 
++/*
++ * CSOT PNC357DB1-4 of the Xiaomi Book S 12.4: all 1600 pixels travel on DSI0,
++ * so the whole line is one DSC slice.  These are the parameters the panel was
++ * verified with; an 800-wide per-link slice renders garbage.
++ */
++static struct drm_dsc_config pnc357db1_4_dsc_cfg = {
++	.dsc_version_major = 1,
++	.dsc_version_minor = 1,
++	.slice_height = 40,
++	.slice_width = 1600,
++	.slice_count = 1,
++	.bits_per_component = 8,
++	.bits_per_pixel = 8 << 4,
++	.block_pred_enable = true,
++};
++
++static const struct drm_display_mode pnc357db1_4_dsc_modes[] = {
++	{
++		.clock = (1600 + 60 + 20 + 40) * (2560 + 112 + 4 + 18) * 60 / 1000,
++		.hdisplay = 1600,
++		.hsync_start = 1600 + 60,
++		.hsync_end = 1600 + 60 + 20,
++		.htotal = 1600 + 60 + 20 + 40,
++		.vdisplay = 2560,
++		.vsync_start = 2560 + 112,
++		.vsync_end = 2560 + 112 + 4,
++		.vtotal = 2560 + 112 + 4 + 18,
++	},
++};
++
+ static const struct drm_display_mode ppc357db1_4_dsc_modes[] = {
+ 	{
+ 		.clock = (800 + 60 + 40 + 40) * 2 * (2560 + 154 + 4 + 18) * 120 / 1000,
+@@ -598,9 +697,14 @@ static int himax_probe(struct mipi_dsi_device *dsi)
+ 	if (IS_ERR(ctx))
+ 		return PTR_ERR(ctx);
+ 
+-	ret = devm_regulator_bulk_get_const(&dsi->dev,
+-					    ARRAY_SIZE(himax_supplies),
+-					    himax_supplies, &ctx->supplies);
++	desc = of_device_get_match_data(dev);
++	if (!desc)
++		return -ENODEV;
++	ctx->desc = desc;
++	ctx->dsc = *desc->dsc_cfg;
++
++	ret = devm_regulator_bulk_get_const(&dsi->dev, desc->num_supplies,
++					    desc->supplies, &ctx->supplies);
+ 	if (ret < 0)
+ 		return ret;
+ 
+@@ -609,11 +713,10 @@ static int himax_probe(struct mipi_dsi_device *dsi)
+ 		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
+ 				     "Failed to get reset-gpios\n");
+ 
+-	desc = of_device_get_match_data(dev);
+-	if (!desc)
+-		return -ENODEV;
+-	ctx->desc = desc;
+-	ctx->dsc = *desc->dsc_cfg;
++	ctx->enable_gpio = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_LOW);
++	if (IS_ERR(ctx->enable_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->enable_gpio),
++				     "Failed to get enable-gpios\n");
+ 
+ 	if (desc->is_dual_dsi) {
+ 		num_dsi = 2;
+@@ -645,7 +748,11 @@ static int himax_probe(struct mipi_dsi_device *dsi)
+ 	ctx->panel.prepare_prev_first = true;
+ 
+ 	if (desc->has_dcs_backlight) {
+-		ctx->backlight = himax_create_backlight(to_primary_dsi(ctx));
++		ctx->bl_supply = devm_regulator_get_optional(dev, "bl");
++		if (IS_ERR(ctx->bl_supply))
++			return dev_err_probe(dev, PTR_ERR(ctx->bl_supply),
++					     "Failed to get backlight supply\n");
++		ctx->backlight = himax_create_backlight(ctx);
+ 		if (IS_ERR(ctx->backlight))
+ 			return dev_err_probe(dev, PTR_ERR(ctx->backlight),
+ 					     "Failed to create backlight\n");
+@@ -695,6 +802,8 @@ static const struct panel_desc boe_ppc357db1_4_desc = {
+ 	.num_modes = ARRAY_SIZE(ppc357db1_4_modes),
+ 	.init_sequence_dsc = boe_ppc357db1_4_dsc_init_seq,
+ 	.init_sequence = boe_ppc357db1_4_init_seq,
++	.supplies = himax_supplies,
++	.num_supplies = ARRAY_SIZE(himax_supplies),
+ 	.is_dual_dsi = true,
+ 	.has_dcs_backlight = true,
+ };
+@@ -714,10 +823,77 @@ static const struct panel_desc csot_ppc357db1_4_desc = {
+ 	.num_modes = ARRAY_SIZE(ppc357db1_4_modes),
+ 	.init_sequence_dsc = csot_ppc357db1_4_dsc_init_seq,
+ 	.init_sequence = csot_ppc357db1_4_init_seq,
++	.supplies = himax_supplies,
++	.num_supplies = ARRAY_SIZE(himax_supplies),
+ 	.is_dual_dsi = true,
+ 	.has_dcs_backlight = true,
+ };
+ 
++/*
++ * CSOT PNC357DB1-4 as found in the Xiaomi Book S 12.4 (SC8180X).
++ *
++ * The Windows/ACPI GPU0 panel configuration brings this panel up with a
++ * short 7-command sequence, so that sequence is the default.  The full
++ * vendor sequence of the closely related PPC357DB1-4 is available through
++ * the himax_pnc_full_init module parameter.
++ */
++static int pnc357db1_4_acpi_init_seq(struct mipi_dsi_multi_context *dsi_ctx)
++{
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb9,
++				     0x83, 0x12, 0x1a, 0x55, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x01);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xcb,
++				     0x1f, 0x55, 0x03, 0x28, 0x0d, 0x08, 0x0a);
++	mipi_dsi_msleep(dsi_ctx, 120);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xcd,
++				     0x81, 0x00, 0x3d, 0x77, 0x18, 0x7a, 0x00);
++
++	mipi_dsi_dcs_exit_sleep_mode_multi(dsi_ctx);
++	mipi_dsi_msleep(dsi_ctx, 120);
++
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb2,
++				     0x00, 0x6a, 0x40, 0x00, 0x00, 0x14,
++				     0x6e, 0x40, 0x73, 0x02, 0x80, 0x21,
++				     0x21, 0x00, 0x00, 0xf0);
++
++	return dsi_ctx->accum_err;
++}
++
++static int pnc357db1_4_init_seq(struct mipi_dsi_multi_context *dsi_ctx)
++{
++	if (!pnc_full_init)
++		return pnc357db1_4_acpi_init_seq(dsi_ctx);
++
++	return csot_ppc357db1_4_init_seq(dsi_ctx);
++}
++
++/*
++ * The panel on the Xiaomi Book S 12.4 is driven from DSI0 only, with all 1600
++ * pixels in one DSC slice: that is the geometry its ACPI configuration uses
++ * and the only one it decodes correctly.  800-wide per-link slices leave the
++ * image garbled, so there is no dual-DSI variant of this descriptor.
++ */
++static const struct panel_desc csot_pnc357db1_4_desc = {
++	.width_mm = 265,
++	.height_mm = 166,
++	.lanes = 4,
++	.format = MIPI_DSI_FMT_RGB888,
++	.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE,
++	.supplies = pnc357db1_4_supplies,
++	.num_supplies = ARRAY_SIZE(pnc357db1_4_supplies),
++	.dsc_cfg = &pnc357db1_4_dsc_cfg,
++	.dsc_modes = pnc357db1_4_dsc_modes,
++	.num_dsc_modes = ARRAY_SIZE(pnc357db1_4_dsc_modes),
++	.modes = pnc357db1_4_dsc_modes,
++	.num_modes = ARRAY_SIZE(pnc357db1_4_dsc_modes),
++	.init_sequence = pnc357db1_4_init_seq,
++	.is_dual_dsi = false,
++	.has_dcs_backlight = false,
++	.needs_display_on = true,
++};
++
++
+ /*
+  * Known panels with HX83121A:
+  * CSOT PNC357DB1-4: on MI Book S 12.4
+@@ -729,6 +905,7 @@ static const struct panel_desc csot_ppc357db1_4_desc = {
+ static const struct of_device_id himax_of_match[] = {
+ 	{ .compatible = "boe,ppc357db1-4", .data = &boe_ppc357db1_4_desc },
+ 	{ .compatible = "csot,ppc357db1-4", .data = &csot_ppc357db1_4_desc },
++	{ .compatible = "csot,pnc357db1-4", .data = &csot_pnc357db1_4_desc },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, himax_of_match);

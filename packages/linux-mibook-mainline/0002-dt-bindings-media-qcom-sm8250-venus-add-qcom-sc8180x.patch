@@ -1,0 +1,23 @@
+From bfbeb07192fc83966e82032a26d1e11dbe88eabc Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:29:58 +0800
+Subject: [PATCH] dt-bindings: media: qcom,sm8250-venus: add qcom,sc8180x-iris
+
+The SC8180X VPU is an IRIS1 (Gen1) core and uses the sm8250 compatible as
+its fallback, the same scheme sc8280xp and sm8350 already follow.
+---
+ Documentation/devicetree/bindings/media/qcom,sm8250-venus.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/media/qcom,sm8250-venus.yaml b/Documentation/devicetree/bindings/media/qcom,sm8250-venus.yaml
+index aca748e42aca..8e96c6fef4e7 100644
+--- a/Documentation/devicetree/bindings/media/qcom,sm8250-venus.yaml
++++ b/Documentation/devicetree/bindings/media/qcom,sm8250-venus.yaml
+@@ -22,6 +22,7 @@ properties:
+       - const: qcom,sm8250-venus
+       - items:
+           - enum:
++              - qcom,sc8180x-iris
+               - qcom,sc8280xp-iris
+               - qcom,sm8350-iris
+           - const: qcom,sm8250-venus

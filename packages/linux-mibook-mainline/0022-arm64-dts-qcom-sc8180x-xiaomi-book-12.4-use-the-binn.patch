@@ -1,0 +1,119 @@
+From 07a67de4078f80d598cde55f5f95d3d316138b1b Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 17:25:54 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: use the binned
+ GPU DVFS profile
+
+sc8180x.dtsi carries the stock SC8180X GPU OPP set (177/256/315/405/461/
+500/514 MHz on LOW_SVS..TURBO_L1).  The part on this board is binned
+higher: its ACPI tables ("ENGINE_PSTATE_SET" 0x02 / "GRAPHICS_FREQ_CONTROL"
+/ "CORE_CLOCK") describe several profiles and the one Windows runs pairs
+every RPMh corner with a higher clock:
+
+    235 MHz @ LOW_SVS  (0x40)     530 MHz @ NOM      (0x100)
+    315 MHz @ SVS      (0x80)     595 MHz @ NOM_L1   (0x140)
+    392 MHz @ SVS_L1   (0xc0)     625 MHz @ TURBO    (0x180)
+                                  670 MHz @ TURBO_L1 (0x1a0)
+
+The previous version of this file appended only the top three states to
+the stock table.  That leaves two frequencies on the same corner - 405 and
+530 MHz both at NOM, 461 and 595 both at NOM_L1, 514 and 670 both at
+TURBO_L1 - and a6xx_hfi_send_perf_table() hands the table to the GMU keyed
+by exactly those corners, so the firmware has two clocks for one rail
+level and runs the lower one.  The stock states have to be replaced, not
+extended.
+
+All seven corners are already used by the stock table, so the RPMh
+"gfx.lvl"/"gmxc.lvl" lookups in a6xx_gmu_rpmh_arc_votes_init() cannot fail
+on any of them.  718 MHz (the TURBO_L2 profile) stays out - Windows uses
+the 670 MHz profile on this machine.
+---
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 60 +++++++++++++++----
+ 1 file changed, 49 insertions(+), 11 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+index c9a8b562996e..f6a0883a628f 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -1503,25 +1503,58 @@
+ };
+ 
+ /*
+- * GPU DVFS: the full set this part advertises.
++ * GPU DVFS: the binned profile this part actually advertises.
+  *
+- * sc8180x.dtsi carries the stock SC8180X table (…, 461, 500, 514 MHz).  The
+- * part in this board is binned higher, and its own ACPI tables
+- * ("ENGINE_PSTATE_SET" 0x02 / "GRAPHICS_FREQ_CONTROL" / "CORE_CLOCK") list
+- * further states — the profile Windows runs tops out at 670 MHz:
++ * sc8180x.dtsi carries the stock SC8180X set (177/256/315/405/461/500/514 MHz
++ * on LOW_SVS/SVS/SVS_L1/NOM/NOM_L1/TURBO/TURBO_L1).  The part in this board is
++ * binned higher: its own ACPI tables ("ENGINE_PSTATE_SET" 0x02 /
++ * "GRAPHICS_FREQ_CONTROL" / "CORE_CLOCK") describe several profiles, and the
++ * one Windows runs on this machine pairs every RPMh corner with a higher
++ * clock:
+  *
++ *     235 MHz @ LOW_SVS  (0x40)
++ *     315 MHz @ SVS      (0x80)
++ *     392 MHz @ SVS_L1   (0xc0)
+  *     530 MHz @ NOM      (0x100)
+  *     595 MHz @ NOM_L1   (0x140)
++ *     625 MHz @ TURBO    (0x180)
+  *     670 MHz @ TURBO_L1 (0x1a0)
+  *
+- * Declaring them here is all that is needed: a6xx_hfi_send_perf_table() hands
+- * the whole OPP table to the GMU (frequencies and, per level, the GX rail arc
+- * vote derived from opp-level), so these become real firmware DVFS levels.
+- * Each of the three levels is already used by a stock state (405/461/514 MHz),
+- * so the RPMh "gfx.lvl" lookup cannot fail on them.  The 625 MHz (TURBO) and
+- * 718 MHz (TURBO_L2) states of the higher profiles are deliberately left out.
++ * These are exactly the corners the stock table already uses, so the RPMh
++ * "gfx.lvl"/"gmxc.lvl" lookup performed by a6xx_gmu_rpmh_arc_votes_init()
++ * cannot fail on any of them.
++ *
++ * The stock states have to be *replaced*, not extended: a6xx_hfi_send_perf_table()
++ * hands the OPP table to the GMU keyed by these corner levels, so leaving a
++ * stock state next to a binned one at the same level (405 and 530 both at NOM,
++ * 514 and 670 both at TURBO_L1, ...) gives the firmware two frequencies for one
++ * corner and it settles on the lower one - the GPU stays downclocked.  The
++ * 718 MHz (TURBO_L2) profile is left out; Windows uses the 670 MHz one.
+  */
+ &gpu_opp_table {
++	/delete-node/ opp-177000000;
++	/delete-node/ opp-256000000;
++	/delete-node/ opp-315000000;
++	/delete-node/ opp-405000000;
++	/delete-node/ opp-461000000;
++	/delete-node/ opp-500000000;
++	/delete-node/ opp-514000000;
++
++	opp-235000000 {
++		opp-hz = /bits/ 64 <235000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
++	};
++
++	opp-315000000 {
++		opp-hz = /bits/ 64 <315000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
++	};
++
++	opp-392000000 {
++		opp-hz = /bits/ 64 <392000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
++	};
++
+ 	opp-530000000 {
+ 		opp-hz = /bits/ 64 <530000000>;
+ 		opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
+@@ -1532,6 +1565,11 @@
+ 		opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+ 	};
+ 
++	opp-625000000 {
++		opp-hz = /bits/ 64 <625000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
++	};
++
+ 	opp-670000000 {
+ 		opp-hz = /bits/ 64 <670000000>;
+ 		opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;

@@ -1,0 +1,42 @@
+From c46944ab158230d85bc0047fa7da7a4e17f41863 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:29:59 +0800
+Subject: [PATCH] dt-bindings: display: panel: himax,hx83121a: add
+ csot,pnc357db1-4
+
+The CSOT PNC357DB1-4 of the Xiaomi Book S 12.4 is driven by the same
+Himax HX83121A controller.  It is supplied from vdd1, vddi and vdd, and
+its backlight is managed through the DCS interface (bl-supply), unlike
+the PPC357DB1-4 panels already described.
+---
+ .../bindings/display/panel/himax,hx83121a.yaml         | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/display/panel/himax,hx83121a.yaml b/Documentation/devicetree/bindings/display/panel/himax,hx83121a.yaml
+index e067a2f6d0b2..c7b9a5329c67 100644
+--- a/Documentation/devicetree/bindings/display/panel/himax,hx83121a.yaml
++++ b/Documentation/devicetree/bindings/display/panel/himax,hx83121a.yaml
+@@ -23,6 +23,7 @@ properties:
+       - enum:
+           - boe,ppc357db1-4
+           - csot,ppc357db1-4
++          - csot,pnc357db1-4
+       - const: himax,hx83121a
+ 
+   reg:
+@@ -40,6 +41,15 @@ properties:
+   vddi-supply:
+     description: power supply for IC
+ 
++  vdd1-supply:
++    description: digital core supply for the panel
++
++  vdd-supply:
++    description: panel supply
++
++  bl-supply:
++    description: power supply for backlight, in case it's managed via DSC
++
+   backlight: true
+   ports: true
+ 

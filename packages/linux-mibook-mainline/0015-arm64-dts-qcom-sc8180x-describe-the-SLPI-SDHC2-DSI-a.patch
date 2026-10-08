@@ -1,0 +1,423 @@
+From 1ce2e428bdf5066d91b206bb5777af44dfa9d2ba Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:07 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x: describe the SLPI, SDHC2, DSI and
+ IRIS blocks
+
+Add the pieces the Xiaomi Book S 12.4 (a51) needs that upstream
+sc8180x.dtsi does not describe yet:
+
+ - the SLPI remoteproc (qcom,sc8180x-slpi-pas) with its SMP2P pair and the
+   FastRPC compute context bank, which is what the SSC sensors hang off;
+ - SDHC2 and its OPP table, the microSD slot;
+ - the MDSS DSI links: address-cells for the panel child nodes, the
+   byte/pixel clock parents the PHY needs, and the MMCX regulator these
+   blocks are supplied from; - restore the remoteproc_adsp_glink label on the ADSP glink edge.  Upstream
+   dropped it as unused in 85abff154951; the board's APR node attaches to it.
+
+ - the IRIS1 video codec node and its firmware carve-out.  The node stays
+   disabled: the driver work needed to bring the VPU up is not part of
+   this series.
+
+sc8180x-pmics.dtsi gains the PON RESIN node (volume-down is wired to it,
+not to a GPIO) and the PMC8180C WLED block, plus the SPMI address cells
+the second PMIC's children need.
+---
+ arch/arm64/boot/dts/qcom/sc8180x-pmics.dtsi |  24 ++
+ arch/arm64/boot/dts/qcom/sc8180x.dtsi       | 256 +++++++++++++++++++-
+ 2 files changed, 278 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-pmics.dtsi b/arch/arm64/boot/dts/qcom/sc8180x-pmics.dtsi
+index 451c9b984f1f..04339c4cd6d8 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-pmics.dtsi
++++ b/arch/arm64/boot/dts/qcom/sc8180x-pmics.dtsi
+@@ -75,6 +75,7 @@
+ 		pon: pon@800 {
+ 			compatible = "qcom,pm8916-pon";
+ 			reg = <0x0800>;
++
+ 			pmc8180_pwrkey: pwrkey {
+ 				compatible = "qcom,pm8941-pwrkey";
+ 				interrupts = <0x0 0x8 0x0 IRQ_TYPE_EDGE_BOTH>;
+@@ -84,6 +85,15 @@
+ 
+ 				status = "disabled";
+ 			};
++
++			pmc8180_resin: resin {
++				compatible = "qcom,pm8941-resin";
++				interrupts = <0x0 0x8 0x1 IRQ_TYPE_EDGE_BOTH>;
++				debounce = <15625>;
++				bias-pull-up;
++
++				status = "disabled";
++			};
+ 		};
+ 
+ 		pmc8180_temp: temp-alarm@2400 {
+@@ -323,6 +333,9 @@
+ 		compatible = "qcom,pmc8180c", "qcom,spmi-pmic";
+ 		reg = <0x5 SPMI_USID>;
+ 
++		#address-cells = <1>;
++		#size-cells = <0>;
++
+ 		pmc8180c_lpg: pwm {
+ 			compatible = "qcom,pmc8180c-lpg";
+ 
+@@ -332,5 +345,16 @@
+ 
+ 			status = "disabled";
+ 		};
++
++		pmc8180c_wled: leds@d800 {
++			compatible = "qcom,pm8150l-wled";
++			reg = <0xd800>, <0xd900>;
++			interrupts = <0x5 0xd8 0x1 IRQ_TYPE_EDGE_RISING>,
++						<0x5 0xd8 0x2 IRQ_TYPE_EDGE_RISING>;
++			interrupt-names = "ovp", "short";
++			label = "backlight";
++
++			status = "disabled";
++		};
+ 	};
+ };
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x.dtsi b/arch/arm64/boot/dts/qcom/sc8180x.dtsi
+index 45391768e245..f41f2bd37925 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x.dtsi
++++ b/arch/arm64/boot/dts/qcom/sc8180x.dtsi
+@@ -535,6 +535,13 @@
+ 		reg = <0x0 0x80000000 0x0 0x0>;
+ 	};
+ 
++	mmcx_reg: mmcx-reg {
++		compatible = "regulator-fixed-domain";
++		power-domains = <&rpmhpd SC8180X_MMCX>;
++		required-opps = <&rpmhpd_opp_nom>;
++		regulator-name = "MMCX";
++	};
++
+ 	pmu {
+ 		compatible = "arm,armv8-pmuv3";
+ 		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH>;
+@@ -598,7 +605,7 @@
+ 		};
+ 	};
+ 
+-	reserved-memory {
++	reserved_memory: reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+ 		ranges;
+@@ -665,6 +672,27 @@
+ 			reg = <0x0 0x9f800000 0x0 0x800000>;
+ 			no-map;
+ 		};
++
++		/*
++		 * Scratch memory the PIL loader copies the VPU firmware into.
++		 * Like sm8250's video_mem and sc8280xp's pil_video_mem, and
++		 * required by the iris driver (iris_firmware.c looks the
++		 * "memory-region" phandle up and bails out without it).
++		 * Carved out of the free DRAM above the last bootloader
++		 * reservation, which ends exactly at 0xa0000000.
++		 */
++		/*
++		 * Firmware carve-out for the VPU.  It has to live inside the PIL
++		 * pool ("PGCM") that the hypervisor/TZ protects - the Windows PIL
++		 * configuration gives it as base 0x8bd80000, size 0xe780000, and
++		 * TZ rejects any firmware region outside it with -EINVAL.  The
++		 * 5 MB size is exactly what the venus image needs (and what the
++		 * registry's SubsystemLoad\VENUS reservation says).
++		 */
++		video_mem: memory@8bd80000 {
++			reg = <0x0 0x8bd80000 0x0 0x500000>;
++			no-map;
++		};
+ 	};
+ 
+ 	smp2p-cdsp {
+@@ -2419,6 +2447,75 @@
+ 			wakeup-parent = <&pdc>;
+ 		};
+ 
++		remoteproc_slpi: remoteproc@2400000 {
++			compatible = "qcom,sc8180x-slpi-pas";
++			reg = <0x0 0x02400000 0x0 0x4040>;
++
++			interrupts-extended = <&intc GIC_SPI 494 IRQ_TYPE_EDGE_RISING>,
++					      <&slpi_smp2p_in 0 IRQ_TYPE_EDGE_RISING>,
++					      <&slpi_smp2p_in 1 IRQ_TYPE_EDGE_RISING>,
++					      <&slpi_smp2p_in 2 IRQ_TYPE_EDGE_RISING>,
++					      <&slpi_smp2p_in 3 IRQ_TYPE_EDGE_RISING>;
++			interrupt-names = "wdog", "fatal", "ready",
++					  "handover", "stop-ack";
++
++			clocks = <&rpmhcc RPMH_CXO_CLK>;
++			clock-names = "xo";
++
++			power-domains = <&rpmhpd SC8180X_LCX>,
++					<&rpmhpd SC8180X_LMX>;
++			power-domain-names = "lcx", "lmx";
++
++			qcom,qmp = <&aoss_qmp>;
++
++			qcom,smem-states = <&slpi_smp2p_out 0>;
++			qcom,smem-state-names = "stop";
++
++			status = "disabled";
++
++			glink-edge {
++				interrupts = <GIC_SPI 170 IRQ_TYPE_EDGE_RISING>;
++				label = "dsps";
++				qcom,remote-pid = <3>;
++				mboxes = <&apss_shared 24>;
++
++				fastrpc {
++					compatible = "qcom,fastrpc";
++					qcom,glink-channels = "fastrpcglink-apps-dsp";
++					label = "sdsp";
++					qcom,non-secure-domain;
++					#address-cells = <1>;
++					#size-cells = <0>;
++
++					/*
++					 * The SMMU stream IDs are the one thing here that
++					 * is not confirmed: upstream has no fastrpc node
++					 * for any sc8180x DSP, so these are SM8150's SLPI
++					 * values.  Plausible because the two SoCs share
++					 * their remoteproc bases and IRQs, but if FastRPC
++					 * faults, this is the first thing to revisit.
++					 */
++					compute-cb@1 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <1>;
++						iommus = <&apps_smmu 0x05a1 0x0>;
++					};
++
++					compute-cb@2 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <2>;
++						iommus = <&apps_smmu 0x05a2 0x0>;
++					};
++
++					compute-cb@3 {
++						compatible = "qcom,fastrpc-compute-cb";
++						reg = <3>;
++						iommus = <&apps_smmu 0x05a3 0x0>;
++					};
++				};
++			};
++		};
++
+ 		remoteproc_mpss: remoteproc@4080000 {
+ 			compatible = "qcom,sc8180x-mpss-pas";
+ 			reg = <0x0 0x04080000 0x0 0x4040>;
+@@ -2485,6 +2582,58 @@
+ 			};
+ 		};
+ 
++		sdhc_2: mmc@8804000 {
++			compatible = "qcom,sc8180x-sdhci", "qcom,sdhci-msm-v5";
++			reg = <0x0 0x08804000 0x0 0x1000>;
++
++			interrupts = <GIC_SPI 204 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 222 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "hc_irq", "pwr_irq";
++
++			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
++				 <&gcc GCC_SDCC2_APPS_CLK>,
++				 <&rpmhcc RPMH_CXO_CLK>;
++			clock-names = "iface", "core", "xo";
++			resets = <&gcc GCC_SDCC2_BCR>;
++
++			iommus = <&apps_smmu 0x6a0 0x0>,
++				 <&apps_smmu 0x6c0 0x0>;
++			interconnects = <&aggre2_noc MASTER_SDCC_2 0 &mc_virt SLAVE_EBI_CH0 0>,
++					<&gem_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_SDCC_2 0>;
++			interconnect-names = "sdhc-ddr", "cpu-sdhc";
++			power-domains = <&rpmhpd SC8180X_CX>;
++			operating-points-v2 = <&sdhc2_opp_table>;
++
++			bus-width = <4>;
++			qcom,dll-config = <0x0007642c>;
++			qcom,ddr-config = <0x80040868>;
++			status = "disabled";
++
++			sdhc2_opp_table: opp-table {
++				compatible = "operating-points-v2";
++
++				opp-19200000 {
++					opp-hz = /bits/ 64 <19200000>;
++					required-opps = <&rpmhpd_opp_min_svs>;
++				};
++
++				opp-50000000 {
++					opp-hz = /bits/ 64 <50000000>;
++					required-opps = <&rpmhpd_opp_low_svs>;
++				};
++
++				opp-100000000 {
++					opp-hz = /bits/ 64 <100000000>;
++					required-opps = <&rpmhpd_opp_svs>;
++				};
++
++				opp-202000000 {
++					opp-hz = /bits/ 64 <202000000>;
++					required-opps = <&rpmhpd_opp_svs_l1>;
++				};
++			};
++		};
++
+ 		usb_prim_hsphy: phy@88e2000 {
+ 			compatible = "qcom,sc8180x-usb-hs-phy",
+ 				     "qcom,usb-snps-hs-7nm-phy";
+@@ -2957,6 +3106,94 @@
+ 			#power-domain-cells = <1>;
+ 		};
+ 
++		/*
++		 * The SC8180X VPU is the IRIS1/Gen1 core, so the iris driver's
++		 * sm8250 platform data applies: the compatible follows the
++		 * upstream scheme (a SoC specific "qcom,<soc>-iris" string with
++		 * the sm8250 one as fallback, exactly as the SC8280XP/SM8350
++		 * series does), which is what the of_match_table binds.
++		 *
++		 * Still copied from the sm8250/sc7180 layout and to be verified
++		 * on hardware: the apps_smmu stream (sc8280xp uses 0x2a00, so
++		 * this is per-SoC silicon, not inheritable -- an arm-smmu fault
++		 * would report the real one), and whether the VPU needs the
++		 * VIDEO_CC_IRIS_AHB_CLK that only this SoC's videocc has.
++		 *
++		 * "firmware-name" points at the firmware extracted from the
++		 * Windows driver package (qcvss8180.mbn, VIDEO.IR.1.2); the
++		 * sm8250 image is not compatible with this core.
++		 */
++		venus: video-codec@aa00000 {
++			compatible = "qcom,sc8180x-iris", "qcom,sm8250-venus";
++			/* 1 MB: the vendor's 2 MB window overlaps the VIDEOCC at 0xab00000,
++			 * and mainline reserves the region (unlike the downstream driver).
++			 */
++			reg = <0 0x0aa00000 0 0x100000>;
++			interrupts = <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
++
++			power-domains = <&videocc VENUS_GDSC>,
++					<&videocc VCODEC0_GDSC>,
++					<&rpmhpd SC8180X_MMCX>;
++			power-domain-names = "venus", "vcodec0", "mx";
++			operating-points-v2 = <&venus_opp_table>;
++
++			clocks = <&gcc GCC_VIDEO_AXIC_CLK>,
++				 <&gcc GCC_VIDEO_AXI0_CLK>,
++				 <&gcc GCC_VIDEO_AXI1_CLK>,
++				 <&videocc VIDEO_CC_MVSC_CORE_CLK>,
++				 <&videocc VIDEO_CC_MVS0_CORE_CLK>,
++				 <&videocc VIDEO_CC_MVS1_CORE_CLK>,
++				 <&videocc VIDEO_CC_IRIS_AHB_CLK>;
++			clock-names = "axic", "iface", "axi1",
++				      "core", "vcodec0_core", "cvp_core", "ahb";
++
++			interconnects = <&gem_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_VENUS_CFG 0>,
++					<&mmss_noc MASTER_VIDEO_P0 0 &mc_virt SLAVE_EBI_CH0 0>;
++			interconnect-names = "cpu-cfg", "video-mem";
++
++			iommus = <&apps_smmu 0x1300 0x60>;
++			memory-region = <&video_mem>;
++			firmware-name = "qcom/sc8180x/venus.mbn";
++
++			resets = <&gcc GCC_VIDEO_AXIC_CLK_BCR>,
++				 <&videocc VIDEO_CC_MVSC_CORE_CLK_BCR>,
++				 <&gcc GCC_VIDEO_AXI0_CLK_BCR>,
++				 <&gcc GCC_VIDEO_AXI1_CLK_BCR>;
++			reset-names = "bus", "core", "axi0", "axi1";
++
++			status = "disabled";
++
++			venus_opp_table: opp-table {
++				compatible = "operating-points-v2";
++
++				opp-240000000 {
++					opp-hz = /bits/ 64 <240000000>;
++					required-opps = <&rpmhpd_opp_low_svs>;
++				};
++
++				opp-338000000 {
++					opp-hz = /bits/ 64 <338000000>;
++					required-opps = <&rpmhpd_opp_svs>;
++				};
++
++				opp-365000000 {
++					opp-hz = /bits/ 64 <365000000>;
++					required-opps = <&rpmhpd_opp_svs_l1>;
++				};
++
++				opp-444000000 {
++					opp-hz = /bits/ 64 <444000000>;
++					required-opps = <&rpmhpd_opp_nom>;
++				};
++
++				/* highest rate the iris_clk_src table offers */
++				opp-533000000 {
++					opp-hz = /bits/ 64 <533000000>;
++					required-opps = <&rpmhpd_opp_turbo>;
++				};
++			};
++		};
++
+ 		camcc: clock-controller@ad00000 {
+ 			compatible = "qcom,sc8180x-camcc";
+ 			reg = <0 0x0ad00000 0 0x20000>;
+@@ -3038,6 +3275,9 @@
+ 				interrupt-parent = <&mdss>;
+ 				interrupts = <0>;
+ 
++				#address-cells = <1>;
++				#size-cells = <0>;
++
+ 				ports {
+ 					#address-cells = <1>;
+ 					#size-cells = <0>;
+@@ -3125,8 +3365,12 @@
+ 					      "iface",
+ 					      "bus";
+ 
++				assigned-clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK_SRC>, <&dispcc DISP_CC_MDSS_PCLK0_CLK_SRC>;
++				assigned-clock-parents = <&mdss_dsi0_phy 0>, <&mdss_dsi0_phy 1>;
++
+ 				operating-points-v2 = <&dsi_opp_table>;
+ 				power-domains = <&rpmhpd SC8180X_MMCX>;
++				mmcx-supply = <&mmcx_reg>;
+ 
+ 				phys = <&mdss_dsi0_phy>;
+ 				phy-names = "dsi";
+@@ -3135,6 +3379,9 @@
+ 
+ 				status = "disabled";
+ 
++				#address-cells = <1>;
++				#size-cells = <0>;
++
+ 				ports {
+ 					#address-cells = <1>;
+ 					#size-cells = <0>;
+@@ -3214,6 +3461,11 @@
+ 					      "iface",
+ 					      "bus";
+ 
++				assigned-clocks = <&dispcc DISP_CC_MDSS_BYTE1_CLK_SRC>,
++						  <&dispcc DISP_CC_MDSS_PCLK1_CLK_SRC>;
++				assigned-clock-parents = <&mdss_dsi1_phy 0>,
++							 <&mdss_dsi1_phy 1>;
++
+ 				operating-points-v2 = <&dsi_opp_table>;
+ 				power-domains = <&rpmhpd SC8180X_MMCX>;
+ 
+@@ -3755,7 +4007,7 @@
+ 
+ 			status = "disabled";
+ 
+-			glink-edge {
++			remoteproc_adsp_glink: glink-edge {
+ 				interrupts = <GIC_SPI 156 IRQ_TYPE_EDGE_RISING>;
+ 				label = "lpass";
+ 				qcom,remote-pid = <2>;

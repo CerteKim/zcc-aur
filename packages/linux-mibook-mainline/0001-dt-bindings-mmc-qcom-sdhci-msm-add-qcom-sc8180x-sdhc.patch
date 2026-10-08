@@ -1,0 +1,24 @@
+From 3ec270c672b6311ddaf47f66bcc1c22a92473e58 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:29:58 +0800
+Subject: [PATCH] dt-bindings: mmc: qcom,sdhci-msm: add qcom,sc8180x-sdhci
+
+The SC8180X SDHC2 controller (microSD on the Xiaomi Book S 12.4) is
+compatible with the v5 programming model; the driver already binds it
+through the qcom,sdhci-msm-v5 fallback.
+---
+ Documentation/devicetree/bindings/mmc/qcom,sdhci-msm.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/mmc/qcom,sdhci-msm.yaml b/Documentation/devicetree/bindings/mmc/qcom,sdhci-msm.yaml
+index bd558a11b792..58193d3a37a3 100644
+--- a/Documentation/devicetree/bindings/mmc/qcom,sdhci-msm.yaml
++++ b/Documentation/devicetree/bindings/mmc/qcom,sdhci-msm.yaml
+@@ -57,6 +57,7 @@ properties:
+               - qcom,sar2130p-sdhci
+               - qcom,sc7180-sdhci
+               - qcom,sc7280-sdhci
++              - qcom,sc8180x-sdhci
+               - qcom,sc8280xp-sdhci
+               - qcom,sdm630-sdhci
+               - qcom,sdm670-sdhci

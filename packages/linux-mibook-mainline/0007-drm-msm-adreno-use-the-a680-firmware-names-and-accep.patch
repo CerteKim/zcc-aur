@@ -1,0 +1,42 @@
+From d5f481066f9c123bafe926ca794ab6218e6812c5 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:02 +0800
+Subject: [PATCH] drm/msm/adreno: use the a680 firmware names and accept them
+
+The Adreno 680 in the SC8180X is driven by the firmware the vendor
+package ships as a680_sqe.fw and a680_gmu.bin; asking for the a630/a640
+images leaves the GPU without a microcode.  Name the firmware after the
+GPU and accept it in a6xx_ucode_check_version().
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c | 4 ++--
+ drivers/gpu/drm/msm/adreno/a6xx_gpu.c     | 2 ++
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index 3e6f409d13a2..4b46e074d8e2 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -1094,8 +1094,8 @@ static const struct adreno_info a6xx_gpus[] = {
+ 		.family = ADRENO_6XX_GEN2,
+ 		.revn = 680,
+ 		.fw = {
+-			[ADRENO_FW_SQE] = "a630_sqe.fw",
+-			[ADRENO_FW_GMU] = "a640_gmu.bin",
++			[ADRENO_FW_SQE] = "a680_sqe.fw",
++			[ADRENO_FW_GMU] = "a680_gmu.bin",
+ 		},
+ 		.gmem = SZ_2M,
+ 		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+index 8b3bb2fd433b..dad6bc5cc014 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -1034,6 +1034,8 @@ static bool a6xx_ucode_check_version(struct a6xx_gpu *a6xx_gpu,
+ 			buf[0] & 0xfff, 0x095);
+ 	} else if (!strcmp(sqe_name, "a660_sqe.fw")) {
+ 		ret = true;
++	} else if (!strcmp(sqe_name, "a680_sqe.fw")) {
++		ret = true;
+ 	} else {
+ 		DRM_DEV_ERROR(&gpu->pdev->dev,
+ 			"unknown GPU, add it to a6xx_ucode_check_version()!!\n");

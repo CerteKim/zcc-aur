@@ -1,0 +1,36 @@
+From 0eb73131669cbc031ad57c994b05dc841c3ae4fe Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:06 +0800
+Subject: [PATCH] slimbus: qcom-ngd: resolve slave addresses on later
+ capability messages
+
+The slave addresses can arrive in a capability message that is not the
+first one.  Keep updating the address map for every non-initial
+capability message instead of only handling the initial one, which is
+what the WCD9340 needs to be found on this board.
+---
+ drivers/slimbus/qcom-ngd-ctrl.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/slimbus/qcom-ngd-ctrl.c b/drivers/slimbus/qcom-ngd-ctrl.c
+index 3071e46d03be..e75f4c7af5e2 100644
+--- a/drivers/slimbus/qcom-ngd-ctrl.c
++++ b/drivers/slimbus/qcom-ngd-ctrl.c
+@@ -1280,8 +1280,15 @@ capability_retry:
+ 			dev_err(ctrl->dev, "unexpected state:%d\n",
+ 						ctrl->state);
+ 
+-		if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+-			qcom_slim_ngd_notify_slaves(ctrl);
++		/*
++		 * The first capability (SAT) message can arrive before
++		 * slim_register_controller() has registered the DT child
++		 * devices, in which case there is nothing to resolve a logical
++		 * address for.  Re-run the lookup on every capability message,
++		 * not only on the DOWN transition, so that children registered
++		 * later still get their logical addresses.
++		 */
++		qcom_slim_ngd_notify_slaves(ctrl);
+ 
+ 	} else if (ret == -EIO) {
+ 		dev_err(ctrl->dev, "capability message NACKed, retrying\n");

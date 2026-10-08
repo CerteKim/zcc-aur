@@ -1,0 +1,47 @@
+From 454a13e31628956985dc2643bd44ce1d2b6a8c06 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 13:53:27 +0800
+Subject: [PATCH] drm/msm/dpu: do not advertise UBWC scanout on SC8180X
+
+With DRM_FORMAT_MOD_QCOM_COMPRESSED in the plane modifier list a
+compositor happily allocates UBWC-compressed scanout buffers.  On the
+Xiaomi Book S 12.4 (SC8180X, Adreno 680) that hangs the GPU within
+seconds of GNOME Shell coming up:
+
+  platform 2c6a000.gmu: Message HFI_H2F_MSG_GX_BW_PERF_VOTE id 264 timed
+      out waiting for response
+  platform 2c6a000.gmu: GMU watchdog expired
+  msm_dpu ae01000.display-controller: 06080001: hangcheck recover!
+      offending task: gnome-shell
+  platform 2c6a000.gmu: HFI queue 0 is not empty
+
+and the machine then freezes hard (no keyboard response).  The linear
+console and all pre-compositor use is fine, i.e. only the compressed
+scanout path is affected - which is also what the 6.18 bring-up tree
+worked around by keeping QCOM_COMPRESSED out of this list.
+
+Advertise linear only until the UBWC path is verified on this board.
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
+index 7b92082d35a6..c90832942c54 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_plane.c
+@@ -89,7 +89,14 @@ struct dpu_plane {
+ };
+ 
+ static const uint64_t supported_format_modifiers[] = {
+-	DRM_FORMAT_MOD_QCOM_COMPRESSED,
++	/*
++	 * UBWC (QCOM_COMPRESSED) scanout is not reliable on the SC8180X: as
++	 * soon as a compositor allocates compressed scanout buffers the
++	 * GPU/GMU hangs (HFI_H2F_MSG_GX_BW_PERF_VOTE timeout, GMU watchdog,
++	 * hangcheck recover) and the machine freezes.  The 6.18 bring-up tree
++	 * kept this modifier out of the list as well; keep linear only until
++	 * the UBWC path is verified on this board.
++	 */
+ 	DRM_FORMAT_MOD_LINEAR,
+ 	DRM_FORMAT_MOD_INVALID
+ };

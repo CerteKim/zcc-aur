@@ -1,0 +1,94 @@
+From 17c0cd3c1e954e41c08fd20931c53eae268f03fe Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 18:58:40 +0800
+Subject: [PATCH] drm/msm/a6xx: only register the GMU debug HFI queue where it
+ exists
+
+61957ab99d8c ("drm/msm/a6xx: Add support for Debug HFI Q") appends a third
+queue to the HFI queue table and advertises it with
+
+	table->num_queues = ARRAY_SIZE(gmu->queues);   /* now 3 */
+
+On the Xiaomi Book S 12.4 (SC8180X, a680) the GMU then stops consuming
+HFI messages a few seconds into a GL workload: the command queue keeps an
+unconsumed GX_BW_PERF_VOTE with a frozen read_index, the response queue is
+empty, and the registers stay readable - the CM3 simply stops there and
+the watchdog fires ~5s later.  A coredump taken at that moment shows the
+queue table exactly as the driver wrote it:
+
+	table: version=0 size=168 qhdr0_off=6 qhdr_size=12 num=3 active=3
+
+6.18 (which has queues[2] and advertises two queues) runs the same board
+without any of this, so the firmware on this part does not cope with the
+extra queue.  The debug queue came in with the A8xx work; keep it for the
+generations whose firmware is known to carry it and leave A6xx with the
+two queues.
+
+While at it, derive the advertised counts from the queues that were
+actually registered instead of the size of the array, so a skipped queue
+can never be advertised.
+---
+ drivers/gpu/drm/msm/adreno/a6xx_hfi.c | 29 +++++++++++++++++++--------
+ 1 file changed, 21 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+index 186a73c0b99c..22e9d8e1a7f6 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_hfi.c
+@@ -1058,6 +1058,8 @@ static void a6xx_hfi_queue_init(struct a6xx_hfi_queue *queue,
+ 
+ void a6xx_hfi_init(struct a6xx_gmu *gmu)
+ {
++	struct a6xx_gpu *a6xx_gpu = container_of(gmu, struct a6xx_gpu, gmu);
++	struct adreno_gpu *adreno_gpu = &a6xx_gpu->base;
+ 	struct a6xx_gmu_bo *hfi = &gmu->hfi;
+ 	struct a6xx_hfi_queue_table_header *table = hfi->virt;
+ 	struct a6xx_hfi_queue_header *headers = hfi->virt + sizeof(*table);
+@@ -1069,7 +1071,7 @@ void a6xx_hfi_init(struct a6xx_gmu *gmu)
+ 	 * headers
+ 	 */
+ 	table_size = sizeof(*table);
+-	table_size += (ARRAY_SIZE(gmu->queues) *
++	table_size += (HFI_MAX_QUEUES *
+ 		sizeof(struct a6xx_hfi_queue_header));
+ 
+ 	table->version = 0;
+@@ -1077,8 +1079,6 @@ void a6xx_hfi_init(struct a6xx_gmu *gmu)
+ 	/* First queue header is located immediately after the table header */
+ 	table->qhdr0_offset = sizeof(*table) >> 2;
+ 	table->qhdr_size = sizeof(struct a6xx_hfi_queue_header) >> 2;
+-	table->num_queues = ARRAY_SIZE(gmu->queues);
+-	table->active_queues = ARRAY_SIZE(gmu->queues);
+ 
+ 	/* Command queue */
+ 	idx = 0;
+@@ -1092,11 +1092,24 @@ void a6xx_hfi_init(struct a6xx_gmu *gmu)
+ 	a6xx_hfi_queue_init(&gmu->queues[idx], &headers[idx], hfi->virt + offset,
+ 		hfi->iova + offset, gmu->legacy ? 4 : 1);
+ 
+-	/* GMU Debug queue */
+-	idx++;
+-	offset += SZ_4K;
+-	a6xx_hfi_queue_init(&gmu->queues[idx], &headers[idx], hfi->virt + offset,
+-		hfi->iova + offset, gmu->legacy ? 5 : 2);
++	/*
++	 * GMU debug queue: the firmware posts its F2H debug messages here and
++	 * the coredump reads them back.  It came in with the A8xx work; the
++	 * older GMU firmware on A6xx parts such as the A680 stops consuming
++	 * HFI messages when a third queue is offered to it, so only register
++	 * the queue where it is known to exist.
++	 */
++	if (adreno_is_a7xx(adreno_gpu) || adreno_is_a8xx(adreno_gpu)) {
++		idx++;
++		offset += SZ_4K;
++		a6xx_hfi_queue_init(&gmu->queues[idx], &headers[idx],
++			hfi->virt + offset, hfi->iova + offset,
++			gmu->legacy ? 5 : 2);
++	}
+ 
+ 	WARN_ON(idx >= HFI_MAX_QUEUES);
++
++	/* Advertise only the queues that were actually registered */
++	table->num_queues = idx + 1;
++	table->active_queues = idx + 1;
+ }

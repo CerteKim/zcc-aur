@@ -1,0 +1,47 @@
+From c1bf1df572f4fe9d8d0fd060cf178f336860c3c3 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 23:10:31 +0800
+Subject: [PATCH] drm/msm/adreno: restore the CX GBIF config on A640 and A680
+
+60a4e18e0e8a ("drm/msm/adreno: Do CX GBIF config before GMU start") moved the
+GBIF_QSB_SIDE* programming out of the a640_family branch of hw_init() into a
+new catalogue reglist (a640_gbif) that a6xx_gmu_fw_start() applies before the
+GMU wakes up.  The list is named after A640, but it was only attached to the
+A610/A612, A650, A660, A690, A7xx and A8xx entries - the A640 and A680
+(ADRENO_6XX_GEN2) entries were left without it, and the hw_init() branch now
+only covers a610_family.  So on every GEN2 part the four QSB side registers
+are no longer programmed at all, where pre-7.2 they were written for the
+whole a640 family.
+
+On the Xiaomi Book S 12.4 (SC8180X, A680) that leaves the GBIF QoS sides at
+whatever the bootloader left behind, and the GPU wedges about a minute into a
+GNOME session - A6XX_RBBM_STATUS comes back with the 3D pipeline, VBIF and CP
+all busy, the CP stops consuming its ring and the GMU stops answering HFI,
+without a single fault/faulting transaction showing up anywhere.
+
+Point both GEN2 entries at the A640 list again, which is exactly the value
+pre-7.2 wrote for this family (0x00071620 on QSB_SIDE0..3).
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index 4b46e074d8e2..4c55c9aba4af 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -983,6 +983,7 @@ static const struct adreno_info a6xx_gpus[] = {
+ 		.a6xx = &(const struct a6xx_info) {
+ 			.hwcg = a640_hwcg,
+ 			.protect = &a630_protect,
++			.gbif_cx = a640_gbif,
+ 			.gmu_cgc_mode = 0x00020202,
+ 			.prim_fifo_threshold = 0x00180000,
+ 		},
+@@ -1106,6 +1107,7 @@ static const struct adreno_info a6xx_gpus[] = {
+ 		.a6xx = &(const struct a6xx_info) {
+ 			.hwcg = a640_hwcg,
+ 			.protect = &a630_protect,
++			.gbif_cx = a640_gbif,
+ 			.gmu_cgc_mode = 0x00020202,
+ 			.prim_fifo_threshold = 0x00200200,
+ 		},

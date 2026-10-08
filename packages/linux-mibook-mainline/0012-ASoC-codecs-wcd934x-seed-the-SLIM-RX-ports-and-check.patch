@@ -1,0 +1,125 @@
+From d10951b834f041b32c42977c7916dc928c8a970f Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:05 +0800
+Subject: [PATCH] ASoC: codecs: wcd934x: seed the SLIM RX ports and check
+ stream errors
+
+The Xiaomi Book 12.4 has no UCM profile that selects the SLIM_RX DAPM
+muxes, so nothing ever attaches the first two WCD934x RX ports and
+playback cannot be streamed to the speaker amplifiers.  Seed RX0/RX1 with
+their standard channel numbers when the AIF1 playback stream starts with
+no channel attached, and let an already attached port pass the mux
+instead of refusing the route.
+
+Also check the Slimbus stream calls in the trigger path and unwind them on
+error instead of ignoring the result.
+---
+ sound/soc/codecs/wcd934x.c | 63 ++++++++++++++++++++++++++++++++++----
+ 1 file changed, 57 insertions(+), 6 deletions(-)
+
+diff --git a/sound/soc/codecs/wcd934x.c b/sound/soc/codecs/wcd934x.c
+index bc41a1466c70..b7788f24d665 100644
+--- a/sound/soc/codecs/wcd934x.c
++++ b/sound/soc/codecs/wcd934x.c
+@@ -58,6 +58,11 @@
+ #define WCD934X_MCLK_CLK_12P288MHZ	12288000
+ #define WCD934X_MCLK_CLK_9P6MHZ		9600000
+ 
++static bool wcd934x_is_xiaomi_book_12_4(void)
++{
++	return of_machine_is_compatible("xiaomi,book-12.4");
++}
++
+ /* Only valid for 9.6 MHz mclk */
+ #define WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ 2400000
+ #define WCD9XXX_DMIC_SAMPLE_RATE_4P8MHZ 4800000
+@@ -1700,6 +1705,25 @@ static int wcd934x_slim_set_hw_params(struct wcd934x_codec *wcd,
+ 	u16 payload = 0;
+ 	int ret, i;
+ 
++	/*
++	 * The Xiaomi Book 12.4 has no UCM profile yet, so nothing ever sets
++	 * the SLIM_RX DAPM muxes.  Seed the first two WCD934x RX ports with
++	 * their standard channel numbers so playback can still be streamed
++	 * to the speaker amplifiers.
++	 */
++	if (wcd934x_is_xiaomi_book_12_4() &&
++	    direction == SNDRV_PCM_STREAM_PLAYBACK &&
++	    dai_data == &wcd->dai[AIF1_PB] &&
++	    list_empty(slim_ch_list)) {
++		for (i = 0; i < 2; i++) {
++			if (!wcd->rx_chs[i].ch_num)
++				wcd->rx_chs[i].ch_num = 144 + i;
++
++			if (list_empty(&wcd->rx_chs[i].list))
++				list_add_tail(&wcd->rx_chs[i].list, slim_ch_list);
++		}
++	}
++
+ 	cfg->ch_count = 0;
+ 	cfg->direction = direction;
+ 	cfg->port_mask = 0;
+@@ -1875,6 +1899,7 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
+ 	struct wcd_slim_codec_dai_data *dai_data;
+ 	struct wcd934x_codec *wcd;
+ 	struct slim_stream_config *cfg;
++	int ret, ret2;
+ 
+ 	wcd = snd_soc_component_get_drvdata(dai->component);
+ 
+@@ -1885,14 +1910,26 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
+ 	case SNDRV_PCM_TRIGGER_RESUME:
+ 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+ 		cfg = &dai_data->sconfig;
+-		slim_stream_prepare(dai_data->sruntime, cfg);
+-		slim_stream_enable(dai_data->sruntime);
++		ret = slim_stream_prepare(dai_data->sruntime, cfg);
++		if (ret)
++			return ret;
++
++		ret = slim_stream_enable(dai_data->sruntime);
++		if (ret) {
++			slim_stream_unprepare(dai_data->sruntime);
++			return ret;
++		}
+ 		break;
+ 	case SNDRV_PCM_TRIGGER_STOP:
+ 	case SNDRV_PCM_TRIGGER_SUSPEND:
+ 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+-		slim_stream_disable(dai_data->sruntime);
+-		slim_stream_unprepare(dai_data->sruntime);
++		ret = slim_stream_disable(dai_data->sruntime);
++
++		ret2 = slim_stream_unprepare(dai_data->sruntime);
++		if (ret)
++			return ret;
++		if (ret2)
++			return ret2;
+ 		break;
+ 	default:
+ 		break;
+@@ -3331,8 +3368,22 @@ static int slim_rx_mux_put(struct snd_kcontrol *kc,
+ 			list_add_tail(&wcd->rx_chs[port_id].list,
+ 				      &wcd->dai[aif_id].slim_ch_list);
+ 		} else {
+-			dev_err(wcd->dev ,"SLIM_RX%d PORT is busy\n", port_id);
+-			return 0;
++			/*
++			 * Xiaomi Book 12.4 can pre-seed RX0/RX1 before userspace
++			 * selects the DAPM mux.  If the port is already attached
++			 * to the requested AIF, only update the mux state.
++			 */
++			list_for_each_entry(ch, &wcd->dai[aif_id].slim_ch_list, list) {
++				if (ch == &wcd->rx_chs[port_id]) {
++					found = true;
++					break;
++				}
++			}
++
++			if (!found) {
++				dev_err(wcd->dev ,"SLIM_RX%d PORT is busy\n", port_id);
++				return 0;
++			}
+ 		}
+ 		break;
+ 

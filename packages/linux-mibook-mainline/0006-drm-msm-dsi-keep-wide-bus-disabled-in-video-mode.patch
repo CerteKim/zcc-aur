@@ -1,0 +1,33 @@
+From f9c420dac78a386ecaef3d4461807c24be6b8a69 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 22:30:01 +0800
+Subject: [PATCH] drm/msm/dsi: keep wide bus disabled in video mode
+
+Video-mode DSC timing is programmed as a 3-byte-per-pixel-clock path, so
+enabling the wide bus there produces a garbled image.  Restrict wide bus
+to command mode until the video timing path supports it.
+
+This is what the Xiaomi Book S 12.4 panel needs; without it the single
+DSI0 link cannot be brought up.
+---
+ drivers/gpu/drm/msm/dsi/dsi_host.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index 982abaaac00d..24e5b8f74f82 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -797,6 +797,13 @@ bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
+ {
+ 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+ 
++	/*
++	 * Video-mode DSC timing is programmed as a 3-byte-per-pclk path.
++	 * Keep wide bus limited to command mode until video timing supports it.
++	 */
++	if (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO)
++		return false;
++
+ 	return msm_host->dsc &&
+ 		msm_dsi_host_version_geq(msm_host, MSM_DSI_VER_MAJOR_6G,
+ 					MSM_DSI_6G_VER_MINOR_V2_5_0);

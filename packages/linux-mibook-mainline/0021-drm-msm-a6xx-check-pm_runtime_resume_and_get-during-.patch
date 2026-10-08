@@ -1,0 +1,99 @@
+From 91929add2a24a558e4cc36299a8fe13941c3e26b Mon Sep 17 00:00:00 2001
+From: Roman Demidov <roman.demidov.nn@gmail.com>
+Date: Thu, 8 Oct 2026 14:34:57 +0800
+Subject: [PATCH] drm/msm/a6xx: check pm_runtime_resume_and_get() during resume
+
+The return values of pm_runtime_resume_and_get() calls in a6xx_pm_resume()
+are not checked, which can lead to hardware access on suspended devices
+and PM reference underflows.
+
+Fix this by checking the return value of each pm_runtime_resume_and_get()
+call and properly unwinding the previously acquired resources on failure.
+
+Found by Linux Verification Center (linuxtesting.org) with SVACE.
+
+Fixes: 5a903a44a984 ("drm/msm/a6xx: Introduce GMU wrapper support")
+Link: https://lore.kernel.org/dri-devel/20260904125523.43813-1-roman.demidov.nn@gmail.com/
+Signed-off-by: Roman Demidov <roman.demidov.nn@gmail.com>
+[certe: cherry-picked onto v7.2 for the Xiaomi Book S 12.4 (SC8180X, a680).
+ On this board the unchecked resume path is followed by hardware access to
+ a suspended GMU/GX domain, which hangs the GMU (HFI_H2F_MSG_GX_BW_PERF_VOTE
+ timeout, "GMU watchdog expired") and then freezes the machine.  Drop this
+ patch once it lands upstream.]
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ drivers/gpu/drm/msm/adreno/a6xx_gpu.c | 41 ++++++++++++++++-----------
+ 1 file changed, 24 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+index dad6bc5cc014..b723c87d8481 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gpu.c
+@@ -2172,43 +2172,50 @@ static int a6xx_pm_resume(struct msm_gpu *gpu)
+ 	opp = dev_pm_opp_find_freq_ceil(&gpu->pdev->dev, &freq);
+ 	if (IS_ERR(opp)) {
+ 		ret = PTR_ERR(opp);
+-		goto err_set_opp;
++		goto err_unlock;
+ 	}
+ 	dev_pm_opp_put(opp);
+ 
+ 	/* Set the core clock and bus bw, having VDD scaling in mind */
+ 	dev_pm_opp_set_opp(&gpu->pdev->dev, opp);
+ 
+-	pm_runtime_resume_and_get(gmu->dev);
+-	pm_runtime_resume_and_get(gmu->gxpd);
++	ret = pm_runtime_resume_and_get(gmu->dev);
++	if (ret < 0)
++		goto err_opp_clear;
++
++	ret = pm_runtime_resume_and_get(gmu->gxpd);
++	if (ret < 0)
++		goto err_put_dev;
+ 
+ 	ret = clk_bulk_prepare_enable(gpu->nr_clocks, gpu->grp_clks);
+ 	if (ret)
+-		goto err_bulk_clk;
++		goto err_put_gxpd;
+ 
+ 	ret = clk_bulk_prepare_enable(gmu->nr_clocks, gmu->clocks);
+ 	if (ret) {
+ 		clk_bulk_disable_unprepare(gpu->nr_clocks, gpu->grp_clks);
+-		goto err_bulk_clk;
++		goto err_put_gxpd;
+ 	}
+ 
+ 	if (adreno_is_a619_holi(adreno_gpu))
+ 		a6xx_sptprac_enable(gmu);
+ 
+-	/* If anything goes south, tear the GPU down piece by piece.. */
+-	if (ret) {
+-err_bulk_clk:
+-		pm_runtime_put(gmu->gxpd);
+-		pm_runtime_put(gmu->dev);
+-		dev_pm_opp_set_opp(&gpu->pdev->dev, NULL);
+-	}
+-err_set_opp:
+ 	mutex_unlock(&a6xx_gpu->gmu.lock);
+ 
+-	if (!ret) {
+-		msm_devfreq_resume(gpu);
+-		a6xx_llc_activate(a6xx_gpu);
+-	}
++	msm_devfreq_resume(gpu);
++	a6xx_llc_activate(a6xx_gpu);
++
++	return 0;
++
++	/* If anything goes south, tear the GPU down piece by piece.. */
++err_put_gxpd:
++	pm_runtime_put(gmu->gxpd);
++err_put_dev:
++	pm_runtime_put(gmu->dev);
++err_opp_clear:
++	dev_pm_opp_set_opp(&gpu->pdev->dev, NULL);
++err_unlock:
++	mutex_unlock(&a6xx_gpu->gmu.lock);
+ 
+ 	return ret;
+ }
