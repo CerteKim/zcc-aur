@@ -1,4 +1,4 @@
-From 454a13e31628956985dc2643bd44ce1d2b6a8c06 Mon Sep 17 00:00:00 2001
+From 96a5da32e8a8026d658163064ce38323ad062586 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 13:53:27 +0800
 Subject: [PATCH] drm/msm/dpu: do not advertise UBWC scanout on SC8180X

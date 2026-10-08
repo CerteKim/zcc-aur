@@ -1,4 +1,4 @@
-From bd28e7b3aaffbe64114fffff51ab74dcceed386f Mon Sep 17 00:00:00 2001
+From ac3048e9edfbb7ce2e85a52e450a0cea241f0c04 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Wed, 7 Oct 2026 22:31:14 +0800
 Subject: [PATCH] soundwire: qcom: harden the AHB bridge, FIFO handling and IRQ

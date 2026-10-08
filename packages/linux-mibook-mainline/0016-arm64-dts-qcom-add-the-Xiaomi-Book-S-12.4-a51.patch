@@ -1,4 +1,4 @@
-From d7ff2ea785a071216a68da023b8ccf8a38683e5b Mon Sep 17 00:00:00 2001
+From 4a95f49e7dd9629fd96b4278642312936abb1f35 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Wed, 7 Oct 2026 22:30:08 +0800
 Subject: [PATCH] arm64: dts: qcom: add the Xiaomi Book S 12.4 (a51)
@@ -27,8 +27,8 @@ region of its own, so the vendor's 20 KB ZAP carve-out is labelled
 gpu_zap_mem instead.
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 1559 +++++++++++++++++
- 2 files changed, 1560 insertions(+)
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 1553 +++++++++++++++++
+ 2 files changed, 1554 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -45,10 +45,10 @@ index 6f33c4e2f09c..f32e2f188d4f 100644
  sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
 diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
 new file mode 100644
-index 000000000000..c9a8b562996e
+index 000000000000..5a6005c70773
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
-@@ -0,0 +1,1559 @@
+@@ -0,0 +1,1553 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Xiaomi Book S 12.4 (SC8180X / SC8180XP).
@@ -1066,26 +1066,20 @@ index 000000000000..c9a8b562996e
 +					reg = <0x42 0x2>;
 +
 +					/*
-+					 * The WSA881x driver only drives its SD_N
-+					 * line once the amplifier has attached,
-+					 * which is too late for it to answer bus
-+					 * enumeration.  Hold the left amplifier
-+					 * out of shutdown from the start so that
-+					 * the SoundWire master can find it.
-+					 *
-+					 * SD_N is active low, so "output-low"
-+					 * (logical 0) drives the line physically
-+					 * high, i.e. the amplifier stays enabled.
-+					 * The flags must match the amplifier's
-+					 * powerdown-gpios or the driver would
-+					 * invert the level.
++					 * Deliberately no gpio-hog for the WSA881x
++					 * SD_N lines.  Since 7.2 the wsa881x driver
++					 * requests its powerdown GPIO with
++					 * GPIOD_OUT_LOW in probe(), which drives the
++					 * active-low SD_N enabled before the
++					 * SoundWire master enumerates the
++					 * amplifiers, so nothing has to hold them
++					 * out of shutdown from userspace.  A hog
++					 * would instead own the line exclusively and
++					 * make that request fail with -EBUSY, which
++					 * leaves the left amplifier without a driver
++					 * and the card without its SLIM Playback
++					 * DAIs.
 +					 */
-+					wsa-left-sd-n-hog {
-+						gpio-hog;
-+						gpios = <1 GPIO_ACTIVE_LOW>;
-+						output-low;
-+						line-name = "wsa-left-sd-n";
-+					};
 +				};
 +
 +				swm: soundwire@c85 {

@@ -1,4 +1,4 @@
-From 91929add2a24a558e4cc36299a8fe13941c3e26b Mon Sep 17 00:00:00 2001
+From 2060ca871b79d893647cefb6fced90baea184c45 Mon Sep 17 00:00:00 2001
 From: Roman Demidov <roman.demidov.nn@gmail.com>
 Date: Thu, 8 Oct 2026 14:34:57 +0800
 Subject: [PATCH] drm/msm/a6xx: check pm_runtime_resume_and_get() during resume

@@ -1,4 +1,4 @@
-From 07a67de4078f80d598cde55f5f95d3d316138b1b Mon Sep 17 00:00:00 2001
+From 4cea9c4e830f2f9d0b1025422f5f89aff995a36e Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 17:25:54 +0800
 Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: use the binned
@@ -32,10 +32,10 @@ the 670 MHz profile on this machine.
  1 file changed, 49 insertions(+), 11 deletions(-)
 
 diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
-index c9a8b562996e..f6a0883a628f 100644
+index 5a6005c70773..4b778dc7d247 100644
 --- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
-@@ -1503,25 +1503,58 @@
+@@ -1497,25 +1497,58 @@
  };
  
  /*
@@ -105,7 +105,7 @@ index c9a8b562996e..f6a0883a628f 100644
  	opp-530000000 {
  		opp-hz = /bits/ 64 <530000000>;
  		opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
-@@ -1532,6 +1565,11 @@
+@@ -1526,6 +1559,11 @@
  		opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
  	};
  

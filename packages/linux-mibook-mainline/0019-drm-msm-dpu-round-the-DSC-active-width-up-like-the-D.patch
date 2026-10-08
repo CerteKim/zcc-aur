@@ -1,4 +1,4 @@
-From 139085c1aa36c772bd6ac7c3956f0cdd6e3a57f8 Mon Sep 17 00:00:00 2001
+From e307119dac771685d138a6c89892f56c29625a43 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 12:08:03 +0800
 Subject: [PATCH] drm/msm/dpu: round the DSC active width up like the DSI host

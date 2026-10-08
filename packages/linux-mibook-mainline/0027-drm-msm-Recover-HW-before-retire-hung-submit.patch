@@ -1,4 +1,4 @@
-From 40df0b50e1eedf35054d2688c1c4b9a75caf2f3e Mon Sep 17 00:00:00 2001
+From 075f9c3d622f0a15261e756c38982157078a219e Mon Sep 17 00:00:00 2001
 From: Jie Zhang <jie.zhang@oss.qualcomm.com>
 Date: Thu, 8 Oct 2026 20:22:48 +0800
 Subject: [PATCH] drm/msm: Recover HW before retire hung submit

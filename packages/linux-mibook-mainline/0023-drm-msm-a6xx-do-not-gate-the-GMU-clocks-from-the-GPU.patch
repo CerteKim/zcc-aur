@@ -1,4 +1,4 @@
-From 62ea34bc7b48ae43cad0e4aed54decc5466b6f28 Mon Sep 17 00:00:00 2001
+From 2bf8579d2139679f80f5aad6a0d910800c910a1c Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 17:50:52 +0800
 Subject: [PATCH] drm/msm/a6xx: do not gate the GMU clocks from the GPU PM

@@ -1,4 +1,4 @@
-From 17c0cd3c1e954e41c08fd20931c53eae268f03fe Mon Sep 17 00:00:00 2001
+From 6053783458f12b11f193b8dfdb98f2fe962925cc Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 18:58:40 +0800
 Subject: [PATCH] drm/msm/a6xx: only register the GMU debug HFI queue where it

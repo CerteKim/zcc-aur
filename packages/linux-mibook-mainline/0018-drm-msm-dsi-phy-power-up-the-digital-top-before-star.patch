@@ -1,4 +1,4 @@
-From 17914b42e643893f12e6004795e6b28b610817cb Mon Sep 17 00:00:00 2001
+From 9da01801ae40eab8479ae94b1536d0be868ff171 Mon Sep 17 00:00:00 2001
 From: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
 Date: Thu, 8 Oct 2026 11:10:06 +0800
 Subject: [PATCH] drm/msm/dsi/phy: power up the digital top before starting the

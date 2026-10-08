@@ -1,4 +1,4 @@
-From 8ee01a317b74e23a6283ce1d69097ae387d1de10 Mon Sep 17 00:00:00 2001
+From 787e0c718106d7c7942a90f4cd47e880e2e14c46 Mon Sep 17 00:00:00 2001
 From: Shivam Rawat <shivrawa@qti.qualcomm.com>
 Date: Thu, 8 Oct 2026 20:22:48 +0800
 Subject: [PATCH] drm/msm/a6xx: Fix stale rpmh votes after suspend

@@ -1,4 +1,4 @@
-From c1bf1df572f4fe9d8d0fd060cf178f336860c3c3 Mon Sep 17 00:00:00 2001
+From e4c73e1d42fb0b58b3d454ce3f7d38fb0fd63909 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Thu, 8 Oct 2026 23:10:31 +0800
 Subject: [PATCH] drm/msm/adreno: restore the CX GBIF config on A640 and A680
