@@ -3,9 +3,9 @@
 #
 # Keep the Qualcomm sensor stack alive across s2idle.
 #
-# On this board every resume used to fault the SLPI's sensor process:
+# On this board every resume faults the SLPI's sensor process:
 #
-#     PDM: service 'sensor_process' crash: 'EX:sensor_process:0x1:frpc_dsp:0x6e:PC=0xb205fb9c'
+#     PDM: service 'sensor_process' crash: 'EX:sensor_process:0x1:frpc_dsp:0x6f:PC=0xb205fb9c'
 #     remoteproc remoteproc0: crash detected in slpi: type fatal error
 #
 # remoteproc then restarts the DSP, which takes /dev/fastrpc-sdsp down and
@@ -13,11 +13,24 @@
 # in by that device) drops every sensor and exits, and nothing ever restarts
 # it - so auto-rotation stays dead for the rest of the session.
 #
-# The fault is in the DSP's FastRPC client (frpc_dsp) and it happens while
-# hexagonrpcd - the DSP's file server for the sensor registry - is connected.
-# The DSP keeps running through s2idle while the AP is frozen, so the most
-# likely trigger is a file-serving transaction that is in flight when the AP
-# freezes.  So: stop the server before the freeze, bring it back afterwards.
+# The fault is in the DSP's FastRPC client (frpc_dsp) and it happens at the
+# unfreeze, so the working theory is a file-serving request that is in flight
+# when the AP freezes.  Step one is therefore to make sure the daemon really is
+# down across the freeze:
+#
+#   * the .path unit must go down as well.  `PathExists=/dev/fastrpc-sdsp` is
+#     still true, and systemd re-evaluates a path unit as soon as the unit it
+#     triggered deactivates - stopping only the service leaves it running again
+#     a few milliseconds later (observed 2026-10-09: "Started ..." 15 ms after
+#     "Stopped ...", with systemctl warning "its triggering units are still
+#     active", so the daemon was up again at freeze time and the theory was not
+#     actually tested).
+#   * the service itself is stopped too, and `systemctl stop` waits, so by the
+#     time this hook returns the daemon is gone and its fd is closed.
+#
+# Step two (the `post` branch) is the safety net: put both units back, and
+# restart iio-sensor-proxy if the DSP crashed anyway and took the proxy with it.
+#
 # Same idea as postmarketOS' device-google-sargo workaround (pmaports!5400,
 # "resuming from suspend with HexagonRPCD running crashes the ADSP").
 #
@@ -36,40 +49,49 @@ log() { echo "$TAG: $*"; }
 
 case "$OP" in
 pre)
-	# No FastRPC request may straddle the freeze.  `systemctl stop` waits,
-	# so by the time we return the daemon is gone and its fd is closed.
+	# The path unit first: while it is active it re-triggers the service the
+	# moment the service stops.
+	if systemctl is-active --quiet hexagonrpcd-sdsp.path; then
+		log "stopping hexagonrpcd-sdsp.path before $KIND"
+		systemctl stop hexagonrpcd-sdsp.path || log "path stop failed"
+	fi
 	if systemctl is-active --quiet hexagonrpcd-sdsp.service; then
-		log "stopping hexagonrpcd-sdsp before $KIND"
-		systemctl stop hexagonrpcd-sdsp.service || log "stop failed"
+		log "stopping hexagonrpcd-sdsp.service before $KIND"
+		systemctl stop hexagonrpcd-sdsp.service || log "service stop failed"
+	fi
+
+	# Say so explicitly: this is the line that tells the next reader whether
+	# the "in-flight request" theory was actually tested.
+	if systemctl is-active --quiet hexagonrpcd-sdsp.service; then
+		log "WARNING: hexagonrpcd-sdsp is still active before $KIND"
 	else
-		log "hexagonrpcd-sdsp not running before $KIND"
+		log "hexagonrpcd-sdsp is down before $KIND"
 	fi
 	;;
 
 post)
 	# The daemon is what hands the SSC its sensor registry, so it has to be
-	# back.  Do not rely on hexagonrpcd-sdsp.path here: the path was already
-	# true when we stopped the service, and an explicit stop also clears the
-	# service's own Restart=always.
+	# back.  Wait for the FastRPC device first: if the SLPI crashed anyway,
+	# remoteproc is busy re-creating it.
 	i=0
 	while [ ! -e /dev/fastrpc-sdsp ] && [ "$i" -lt 30 ]; do
 		sleep 1
 		i=$((i + 1))
 	done
 	if [ -e /dev/fastrpc-sdsp ]; then
-		log "/dev/fastrpc-sdsp is present after ${i}s; starting hexagonrpcd-sdsp"
-		systemctl start hexagonrpcd-sdsp.service || log "start failed"
+		log "/dev/fastrpc-sdsp is present after ${i}s; starting the sensor stack"
+		systemctl start hexagonrpcd-sdsp.service || log "service start failed"
+		systemctl start hexagonrpcd-sdsp.path || log "path start failed"
 	else
 		log "/dev/fastrpc-sdsp did not appear within ${i}s"
 	fi
 
-	# Belt and braces: if the SLPI still crashed, its recovery removed and
-	# re-created the FastRPC device and the proxy will have exited with the
-	# sensors.  Only touch it when it is really gone, so a healthy
-	# accelerometer is never dropped on a resume that went fine.  Note that
-	# mutter may then need its claim recipe re-run (~/.local/bin/
-	# mutter-accelerometer-claim.sh) from the user session - a root hook
-	# cannot do that.
+	# Only touch the proxy when it is really gone, so a healthy accelerometer
+	# is never dropped on a resume that went fine.  Note that mutter may then
+	# need its claim recipe re-run (~/.local/bin/mutter-accelerometer-claim.sh)
+	# from the user session - a root hook cannot do that.  The proxy needs a
+	# while to re-discover the SSC, so HasAccelerometer is logged for the
+	# record and may well read false here.
 	if command -v busctl >/dev/null 2>&1 &&
 			! systemctl is-active --quiet iio-sensor-proxy.service; then
 		log "iio-sensor-proxy is down; restarting it"
@@ -77,7 +99,7 @@ post)
 		sleep 3
 		log "HasAccelerometer=$(busctl --system get-property \
 			net.hadess.SensorProxy /net/hadess/SensorProxy \
-			net.hadess.SensorProxy HasAccelerometer 2>/dev/null || echo '?')"
+			net.hadess.SensorProxy HasAccelerometer 2>/dev/null || echo '?') (early, may still be false)"
 	fi
 	;;
 esac
