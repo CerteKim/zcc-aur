@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 32 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 32 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 31 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 31 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -59,11 +59,31 @@ qcom_q6v5_pas 2400000.remoteproc: fatal error received: err_qdi.c:964:EX:sensor_
 remoteproc remoteproc0: crash detected in slpi: type fatal error
 ```
 
-补丁 0032 针对的就是这一条：sensors protection domain 的 message buffer 必须从
-remote heap 分配，不能走 SMMU context bank，而 SLPI 的 fastrpc 节点恰好给
-compute-cb 描述了 stream ID（`0x5a1`–`0x5a3`）。**注意**本机日志里没有上游那份
-`arm-smmu ... Unhandled context fault`（上游报的 `cbfrsynra=0x5a1` 正是我们的
-compute-cb@1），所以它是否真能消掉这次崩溃还没上机确认。
+> **2026-10-09 下午：0032 已实测有害，从序列里移除（31 个补丁）。**
+>
+> 装上 32 补丁整包后 mainline 起不来（详见
+> `/home/certe/aarch64-packages/linux-surface/linux-7.2-boot-fail.md`：journal 只到
+> monotonic 14.85 s 就断，尾巴被硬重启带走）。相对上次能用的构建，真正新增的只有
+> 重新链接的 Image 和两个模块（`i2c-hid.ko` = 0031、`fastrpc.ko` = 0032）。
+> **只把 `fastrpc.ko` 换成不带 0032 的那颗，同一个 Image 就正常启动**（实测：
+> `9ce65ad6` 换进去后系统起来，SLPI up、`hexagonrpcd` + `iio-sensor-proxy` active、
+> `ssccli --sensor accelerometer` 出重力）→ 0032 是那根稻草。
+>
+> 机制：上游那版的 remote-heap 路径依赖 fastrpc 节点的 `memory-region`（上游
+> `sdm845.dtsi` 里是 `<&fastrpc_mem>`，一个 `shared-dma-pool` 的 16 MB remote heap）。
+> **我们这板的 fastrpc 节点没有 `memory-region`**——启动日志一直在报
+> `qcom,fastrpc ...: no reserved DMA memory for FASTRPC`。于是
+> `fastrpc_remote_heap_alloc()` 落到 `dma_alloc_coherent(&rpdev->dev, …)`，把 DSP
+> 不能用的缓冲交给它，整机就挂。而它想取代的 context-bank 路径在这块板上**本来
+> 就是好的**（所有日志里都没有上游那份 `arm-smmu ... Unhandled context fault`），
+> 所以这条补丁的前提在本机不成立，**不要装回来**。旧 tip 仍留在
+> `refs/backup/drop-commits-20261009-135822`（仅供考古，不需要回滚）。
+
+补丁 0032 原本针对的是每次 resume 的 SLPI 崩溃：sensors protection domain 的
+message buffer 必须从 remote heap 分配、不能走 SMMU context bank，而 SLPI 的 fastrpc
+节点恰好给 compute-cb 描述了 stream ID（`0x5a1`–`0x5a3`）。**这个判断在本机是错的**
+（见上：没有 remote heap，而且 context-bank 路径没有故障记录），**resume 的 SLPI
+崩溃仍未解决，需要换一条路查**。
 
 同一次 resume 还会连累用户态，这才是"自动旋转不工作"的直接原因：
 `/dev/fastrpc-sdsp` 被摘掉又在同一秒重建，`iio-sensor-proxy`（`Restart=no`，只被这个
@@ -117,7 +137,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（32 个）
+## 补丁内容（31 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -178,16 +198,16 @@ GPU / GMU（0007、0021–0028）：
 * `remoteproc: qcom_q6v5_pas: sc8180x SLPI PAS`
 * `tools/lib/bpf: strstr/strchr 结果强转`
 
-SLPI / 传感器（0032）：
+SLPI / 传感器（0032，**已实测有害并从序列移除**，见上面的"状态（2026-10-09）"）：
 
 * `misc: fastrpc: allocate message buffer from remote heap for sensors PD` ——
-  **上游 cherry-pick**（Robin Snyders / Piyush Raj Chouhan，Baryshkov reviewed，
-  2026-10-03 投的 v2，尚未进 mainline）。一行改动：
-  `if (ctx->fl->sctx->sid && ctx->fl->pd != SENSORS_PD)`。动机是每次 resume 的
-  SLPI `sensor_process` 崩溃，详见上面的"状态（2026-10-09）"；基线到 7.3 后若上游
-  已合并可删。
+  上游 cherry-pick（Robin Snyders / Piyush Raj Chouhan，Baryshkov reviewed，
+  2026-10-03 投的 v2；**不要装回来**）。它假定 sensors PD 必须走 remote heap，但本机
+  fastrpc 节点没有 `memory-region`（remote heap），remote-heap 分配会把 DSP 打死，
+  同一个 Image 只换回不带它的 `fastrpc.ko` 就能启动。旧 tip `70b057372c9c` 留在
+  `refs/backup/drop-commits-20261009-135822`（仅供考古）。
 
-> 2026-10-08 晚摘掉的三个（不在上面 32 个里）：`msm.no_gpu_recovery` 调试开关及其
+> 2026-10-08 晚摘掉的三个（不在上面 31 个里）：`msm.no_gpu_recovery` 调试开关及其
 > revert（净零）、`drm/msm/adreno: report UBWC as unsupported on the Xiaomi Book S 12.4`。
 
 ## 明确不在补丁集里的
