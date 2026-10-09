@@ -1,0 +1,43 @@
+From 70b057372c9caa727f11a83a2e4ea9d4311bd691 Mon Sep 17 00:00:00 2001
+From: Robin Snyders <robin@snyders.xyz>
+Date: Fri, 9 Oct 2026 10:54:11 +0800
+Subject: [PATCH] misc: fastrpc: allocate message buffer from remote heap for
+ sensors PD
+
+The sensors protection domain reaches the message buffer directly rather
+than through its context bank, so it requires an allocation from the
+reserved remote heap memory pool.  Using a context-bank buffer allocation
+leaves the DSP addressing memory that is not mapped in its address space,
+triggering an SMMU context fault (e.g. 0x1fffff000) or bus stall.
+
+Ensure the remote heap is used for SENSORS_PD invocations even when
+a stream ID (sid) is present.
+
+On the Xiaomi Book S 12.4 (sc8180x) the SLPI carries the Sensor Core and
+its fastrpc node does describe SMMU stream IDs for the compute context
+banks (0x5a1-0x5a3), so the sensors PD here is in exactly the configuration
+this fixes: sensor_process faults with 'EX:sensor_process:0x1:frpc_dsp'
+on every resume from s2idle, and remoteproc then restarts the SLPI.
+Carried from the mailing list; not yet in mainline.
+
+Link: https://patchew.org/linux/20261003150559.6926-1-pc1598@mainlining.org/
+Signed-off-by: Robin Snyders <robin@snyders.xyz>
+Signed-off-by: Piyush Raj Chouhan <pc1598@mainlining.org>
+Reviewed-by: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
+---
+ drivers/misc/fastrpc.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/misc/fastrpc.c b/drivers/misc/fastrpc.c
+index eb6c2a78d3c7..da4dc1f1004b 100644
+--- a/drivers/misc/fastrpc.c
++++ b/drivers/misc/fastrpc.c
+@@ -1052,7 +1052,7 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
+ 
+ 	ctx->msg_sz = pkt_size;
+ 
+-	if (ctx->fl->sctx->sid)
++	if (ctx->fl->sctx->sid && ctx->fl->pd != SENSORS_PD)
+ 		err = fastrpc_buf_alloc(ctx->fl, dev, pkt_size, &ctx->buf);
+ 	else
+ 		err = fastrpc_remote_heap_alloc(ctx->fl, dev, pkt_size, &ctx->buf);

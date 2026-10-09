@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 31 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 31 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 32 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 32 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -48,8 +48,30 @@ tarball + 一套自带的补丁集**。
 
 现状：睡眠/唤醒、显示、触摸和笔都正常。每次 resume 仍会记一次 `failed_resume`
 （`last_failed_dev = 0-004f`）——这颗控制器在空闲时不回应主机的主动命令，而
-resume 路径里那条 spec 要求的 `PWR_ON` 正是这种命令；功能不受影响。另有每次
-resume 时 SLPI（`sensor_process`）崩一次的问题，属另一条线，待查。
+resume 路径里那条 spec 要求的 `PWR_ON` 正是这种命令；功能不受影响。
+
+与触摸无关的另一条线：**每次 s2idle resume，SLPI 上的 `sensor_process` 必崩一次**
+（boot 0 = 1/1、boot -1 = 1/1、boot -5 = 2/2），remoteproc 随后自动把 SLPI 拉起来：
+
+```
+PDM: service 'sensor_process' crash: 'EX:sensor_process:0x1:frpc_dsp:0x6e:PC=0xb205fb9c'
+qcom_q6v5_pas 2400000.remoteproc: fatal error received: err_qdi.c:964:EX:sensor_process:...
+remoteproc remoteproc0: crash detected in slpi: type fatal error
+```
+
+补丁 0032 针对的就是这一条：sensors protection domain 的 message buffer 必须从
+remote heap 分配，不能走 SMMU context bank，而 SLPI 的 fastrpc 节点恰好给
+compute-cb 描述了 stream ID（`0x5a1`–`0x5a3`）。**注意**本机日志里没有上游那份
+`arm-smmu ... Unhandled context fault`（上游报的 `cbfrsynra=0x5a1` 正是我们的
+compute-cb@1），所以它是否真能消掉这次崩溃还没上机确认。
+
+同一次 resume 还会连累用户态，这才是"自动旋转不工作"的直接原因：
+`/dev/fastrpc-sdsp` 被摘掉又在同一秒重建，`iio-sensor-proxy`（`Restart=no`，只被这个
+`.device` 拉起）把三个传感器全丢掉后退出，之后不再回来——总线上的
+`net.hadess.SensorProxy` 消失，mutter 拿不到加速度计。此时 SSC 本身是好的
+（`ssccli --sensor accelerometer` 仍能读到重力），hexagonrpcd 也会重推 registry。
+挂起后临时恢复：`systemctl restart iio-sensor-proxy`，再跑一次
+`~/.local/bin/mutter-accelerometer-claim.sh`（mutter#4931 的 inhibit 计数）。
 
 ## 维护补丁集
 
@@ -95,7 +117,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（31 个）
+## 补丁内容（32 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -156,7 +178,16 @@ GPU / GMU（0007、0021–0028）：
 * `remoteproc: qcom_q6v5_pas: sc8180x SLPI PAS`
 * `tools/lib/bpf: strstr/strchr 结果强转`
 
-> 2026-10-08 晚摘掉的三个（不在上面 31 个里）：`msm.no_gpu_recovery` 调试开关及其
+SLPI / 传感器（0032）：
+
+* `misc: fastrpc: allocate message buffer from remote heap for sensors PD` ——
+  **上游 cherry-pick**（Robin Snyders / Piyush Raj Chouhan，Baryshkov reviewed，
+  2026-10-03 投的 v2，尚未进 mainline）。一行改动：
+  `if (ctx->fl->sctx->sid && ctx->fl->pd != SENSORS_PD)`。动机是每次 resume 的
+  SLPI `sensor_process` 崩溃，详见上面的"状态（2026-10-09）"；基线到 7.3 后若上游
+  已合并可删。
+
+> 2026-10-08 晚摘掉的三个（不在上面 32 个里）：`msm.no_gpu_recovery` 调试开关及其
 > revert（净零）、`drm/msm/adreno: report UBWC as unsupported on the Xiaomi Book S 12.4`。
 
 ## 明确不在补丁集里的
