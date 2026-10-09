@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 29 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 29 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 31 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 31 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -28,6 +28,28 @@ tarball + 一套自带的补丁集**。
 同一晚把三个纯调试补丁从序列里摘掉了（见下面的 `drop-commits.sh`）：
 `msm.no_gpu_recovery` 调试开关及其 revert（净零）、`report UBWC as unsupported`
 （已验证无效，且留着只会让 GPU 退回线性缓冲）。
+
+## 状态（2026-10-09）：休眠/唤醒
+
+"睡下去不回来"这件事有两条根因，都已在补丁集和配置里处理：
+
+* **白屏**：`CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT` 停在默认的 10 秒。6.18 那棵树里
+  板级补丁直接把 `drivers/base/dd.c` 的 `driver_deferred_probe_timeout` 改成 -1
+  （无限等），7.2 改用配置表达时没有设，于是 GPU 慢一步内核就放弃依赖，
+  `msm-mdss` 探测失败（`deferred probe timeout, ignoring dependency` →
+  `-ETIMEDOUT`），显示子系统整个起不来，表现为背光亮着的白屏。现在
+  `xiaomi-only.config` 显式设成 -1。
+* **触摸**：`884000.i2c` 上的 Himax `HIMX1234`（HID `4858:121a`）NAK
+  `SET_POWER(SLEEP)`，随之而来的 abort 让 GENI 控制器连后续传输也做不完：resume 时
+  `PWR_ON` 同样被 NAK、`i2c_hid_core_pm_resume()` 返回 `-ENXIO`，一两秒后总线再报
+  `Timeout resetting RX_FSM`。设备树给它加 `wakeup-source`（补丁 0030：挂起时不切
+  电轨、保留设备状态），驱动给它加 `NO_SLEEP_ON_SUSPEND`（补丁 0031：那条命令
+  干脆不发），于是挂起阶段这条总线零流量。
+
+现状：睡眠/唤醒、显示、触摸和笔都正常。每次 resume 仍会记一次 `failed_resume`
+（`last_failed_dev = 0-004f`）——这颗控制器在空闲时不回应主机的主动命令，而
+resume 路径里那条 spec 要求的 `PWR_ON` 正是这种命令；功能不受影响。另有每次
+resume 时 SLPI（`sensor_process`）崩一次的问题，属另一条线，待查。
 
 ## 维护补丁集
 
@@ -73,7 +95,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（29 个）
+## 补丁内容（31 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -120,13 +142,21 @@ GPU / GMU（0007、0021–0028）：
   （commit `c1bf1df572f4`），通用缺陷、值得发上游，建议带
   `Fixes: 60a4e18e0e8a` 与 `Signed-off-by`
 
+触摸 / I2C（0030、0031）：
+
+* `arm64: dts: qcom: sc8180x-xiaomi-book-12.4: keep the Himax touch powered across suspend`
+  —— 加 `wakeup-source`，让 i2c-hid 在挂起时跳过电轨下电、恢复时跳过上电
+* `HID: i2c-hid: don't send SET_POWER(SLEEP) to the Xiaomi Book S 12.4 touchscreen`
+  —— 新 quirk，`hid-ids.h` 里加 Himax `0x4858:0x121a`；与上游给 Cirque 1063 的
+  处理相同（那颗也是 NAK 这条命令）。详见上面的"状态（2026-10-09）"
+
 其它（0008、0009、0014）：
 
 * `clk: qcom: videocc-sm8150: qcom,sc8180x-videocc`
 * `remoteproc: qcom_q6v5_pas: sc8180x SLPI PAS`
 * `tools/lib/bpf: strstr/strchr 结果强转`
 
-> 2026-10-08 晚摘掉的三个（不在上面 29 个里）：`msm.no_gpu_recovery` 调试开关及其
+> 2026-10-08 晚摘掉的三个（不在上面 31 个里）：`msm.no_gpu_recovery` 调试开关及其
 > revert（净零）、`drm/msm/adreno: report UBWC as unsupported on the Xiaomi Book S 12.4`。
 
 ## 明确不在补丁集里的
@@ -138,8 +168,9 @@ GPU / GMU（0007、0021–0028）：
 * **7.2 已经上游的部分**：Himax HX83121A 驱动与 binding、WCN3998 ROM 版本、
   sdhci-msm HS400 倍频、a6xx IFPC NULL 保护与 preempt 顺序、phy 的
   sc8180x 条目、gcc-sc8180x PCIe GDSC retention（`ccb92c78b42e`）。
-* **`drivers/base/dd.c` 的 fw_devlink hack**：7.2 已有
-  `CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT`，需要时用 config/cmdline 表达。
+* **`drivers/base/dd.c` 的 fw_devlink hack**：7.2 用
+  `CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT` 表达，**而且必须显式设**——默认的 10 秒
+  就是白屏的根因，本包现在设成 `-1`（无限等，等同 6.18 那个 hack）。
 * **`drivers/firmware/efi/efi.c` 的 ResetSystem hack**：本机 cmdline 已经有
   `efi=noruntime`，那段（还缺大括号）没有实际作用。
 
@@ -151,6 +182,17 @@ GPU / GMU（0007、0021–0028）：
 `DRM_DP_AUX_BUS`、`SPI_HID`（7.2 移除/改名）、`RTC_DRV_SURFACE`、`UCSI_GLINK`
 （linux-surface 栈才有，本包不带；USB-C 走 mainline 的 `UCSI_PMIC_GLINK`，
 在 `base.config` 里）。
+
+片段里显式设的一项（**不能删**）：
+
+```
+CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT=-1
+```
+
+7.2 删掉了 `driver_deferred_probe_timeout` 的板级 hack，默认 10 秒；本机 GPU
+偶尔在 10 秒后才就位，内核一放弃依赖 `msm-mdss` 就探测失败、显示子系统起不来
+（白屏）。负值是"无限等"，与 6.18 的行为一致；也可以在 GRUB 里用
+`deferred_probe_timeout=-1` 临时表达。
 
 ## 安装注意
 

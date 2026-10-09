@@ -1,0 +1,65 @@
+From 85dd3138874307bb9a3e50f9a47facdd15f64ace Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 08:57:40 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: keep the Himax
+ touch powered across suspend
+
+The HIMX1234 touch controller (hid-over-i2c 4858:121A on QUP0 SE1) does not
+survive the regulator power cycle that i2c-hid performs around system suspend.
+On the way down it NAKs SET_POWER(SLEEP); once the rails have been cut and
+restored it no longer answers PWR_ON, so i2c_hid_core_pm_resume() returns
+-ENXIO and the GENI I2C controller then times out aborting the transfer
+("geni_i2c 884000.i2c: Timeout resetting RX_FSM").  One such resume never came
+back at all and the machine had to be powered off.
+
+The platform firmware runs this as a sequenced transition: the PEP entry for
+\_SB.TSC1 in the DSDT drives TLMM GPIO 54, waits, votes LDO4_C (3.3 V) and then
+LDO12_E (1.8 V) on, waits another 200 ms and only then configures the interrupt
+pin.  The device tree describes only the two regulators and the interrupt, so
+the driver performs a plain power cycle this controller cannot recover from.
+
+Being a wakeup source keeps the device powered: i2c-hid skips
+i2c_hid_core_power_down() in suspend and i2c_hid_core_power_up() in resume when
+the device may wake the system, so the controller keeps both its state and its
+supply across s2idle.  The I2C core then arms the touch IRQ as a wake IRQ, so
+touching the panel will also wake the machine.
+---
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 25 +++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+index c5ce108ffb12..93b743489ee4 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -644,6 +644,31 @@
+ 		vddl-supply = <&vreg_l12e_1p8>;
+ 		post-power-on-delay-ms = <200>;
+ 
++		/*
++		 * Keep the controller powered across system suspend.
++		 *
++		 * The HIMX1234 does not survive the regulator power cycle the
++		 * driver otherwise performs around suspend: it NAKs
++		 * SET_POWER(SLEEP) on the way down, and once the rails have been
++		 * cut and restored it no longer answers PWR_ON, so
++		 * i2c_hid_core_pm_resume() fails with -ENXIO and the GENI
++		 * controller then times out aborting the transfer.  One such
++		 * resume left the machine hung.
++		 *
++		 * The platform firmware runs this as a sequenced transition: its
++		 * PEP entry for \_SB.TSC1 drives TLMM GPIO 54, waits, votes
++		 * LDO4_C then LDO12_E on, waits another 200 ms and only then
++		 * configures the interrupt pin.  That sequence is not described
++		 * here and the driver does not perform it.
++		 *
++		 * Being a wakeup source makes the driver skip both the
++		 * power-down in i2c_hid_core_suspend() and the power-up in
++		 * i2c_hid_core_resume(), so the controller keeps its state (and
++		 * its supply) while the system is asleep and still answers on
++		 * resume.
++		 */
++		wakeup-source;
++
+ 		interrupts-extended = <&tlmm 122 IRQ_TYPE_LEVEL_LOW>;
+ 
+ 		pinctrl-0 = <&ts_irq_active>;

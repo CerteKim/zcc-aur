@@ -151,7 +151,7 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | 包 | 内容 |
 |---|---|
 | **`linux-mibook`** | 内核（含 `linux-mibook-headers`）：mainline + 面板/音频/GPU 等本地补丁。**编译需 1~2 小时**，通常单独构建后用 `--collect` 收进仓库。 |
-| **`linux-mibook-mainline`** | 同一台机器的**上游基线**内核（含 `-headers`）：源是 `cdn.kernel.org` 的 `linux-7.2.tar.xz`，本板改动是包目录里 29 个补丁文件（`git format-patch` 的产物，用 `regen-patches.sh` 从内核镜像的 `xiaomi-mainline-7.2` 分支重新导出）。与 `linux-mibook` 的区别：不带 linux-surface 栈、不带 parked 的 IRIS/VPU 代码；包名与 `/boot` 路径独立，两者可以并存。 |
+| **`linux-mibook-mainline`** | 同一台机器的**上游基线**内核（含 `-headers`）：源是 `cdn.kernel.org` 的 `linux-7.2.tar.xz`，本板改动是包目录里 31 个补丁文件（`git format-patch` 的产物，用 `regen-patches.sh` 从内核镜像的 `xiaomi-mainline-7.2` 分支重新导出）。与 `linux-mibook` 的区别：不带 linux-surface 栈、不带 parked 的 IRIS/VPU 代码；包名与 `/boot` 路径独立，两者可以并存。 |
 | **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由 `linux-mibook` 的内核源码提供。 |
 | **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**（见下文）。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据；**以及把固件放进 initramfs 的 mkinitcpio hook**。这些固件**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
