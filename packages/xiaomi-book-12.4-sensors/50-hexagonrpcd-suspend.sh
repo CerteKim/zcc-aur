@@ -14,22 +14,34 @@
 # it - so auto-rotation stays dead for the rest of the session.
 #
 # The fault is in the DSP's FastRPC client (frpc_dsp) and it happens at the
-# unfreeze, so the working theory is a file-serving request that is in flight
-# when the AP freezes.  Step one is therefore to make sure the daemon really is
-# down across the freeze:
+# unfreeze, so the cause is a file-serving request that is in flight when the
+# AP freezes.  Confirmed on 2026-10-09 with the same kernel and two suspends:
+#
+#   daemon still up at freeze   -> PDM: service 'sensor_process' crash
+#   (path unit had restarted it)   'EX:sensor_process:0x1:frpc_dsp:0x6f'
+#                                  remoteproc: crash detected in slpi
+#                                  /dev/fastrpc-sdsp re-created, proxy exits
+#
+#   daemon down at freeze       -> no fault at all, /dev/fastrpc-sdsp is never
+#   (this hook)                    removed, iio-sensor-proxy keeps its sensors
+#                                  and mutter its claim
+#
+# So step one is to make sure the daemon really is down across the freeze:
 #
 #   * the .path unit must go down as well.  `PathExists=/dev/fastrpc-sdsp` is
 #     still true, and systemd re-evaluates a path unit as soon as the unit it
 #     triggered deactivates - stopping only the service leaves it running again
-#     a few milliseconds later (observed 2026-10-09: "Started ..." 15 ms after
-#     "Stopped ...", with systemctl warning "its triggering units are still
-#     active", so the daemon was up again at freeze time and the theory was not
-#     actually tested).
+#     a few milliseconds later.  That is how the first test of this hook got a
+#     false negative: the log showed "Started ..." 15 ms after "Stopped ...",
+#     systemctl warned "its triggering units are still active:
+#     hexagonrpcd-sdsp.path", and the daemon was up again at freeze time.
 #   * the service itself is stopped too, and `systemctl stop` waits, so by the
 #     time this hook returns the daemon is gone and its fd is closed.
 #
 # Step two (the `post` branch) is the safety net: put both units back, and
 # restart iio-sensor-proxy if the DSP crashed anyway and took the proxy with it.
+# With the two steps above that branch has not been needed any more, but it
+# stays for the case where the DSP dies for some other reason.
 #
 # Same idea as postmarketOS' device-google-sargo workaround (pmaports!5400,
 # "resuming from suspend with HexagonRPCD running crashes the ADSP").

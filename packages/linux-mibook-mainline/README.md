@@ -59,6 +59,11 @@ qcom_q6v5_pas 2400000.remoteproc: fatal error received: err_qdi.c:964:EX:sensor_
 remoteproc remoteproc0: crash detected in slpi: type fatal error
 ```
 
+> **2026-10-09 晚：已解决，且不在内核里。** 冻结前把 `hexagonrpcd`（含 `.path` 单元）
+> 停掉就不再崩——`xiaomi-book-12.4-sensors` 的 `50-hexagonrpcd-suspend.sh` 就是干这个
+> 的，上机对比验证过（daemon 活着冻结 → 崩；停了再冻结 → 一次都不崩）。细节见下了
+> 面的"0032 已实测有害"那段。
+
 > **2026-10-09 下午：0032 已实测有害，从序列里移除（31 个补丁）。**
 >
 > 装上 32 补丁整包后 mainline 起不来（详见
@@ -82,11 +87,20 @@ remoteproc remoteproc0: crash detected in slpi: type fatal error
 补丁 0032 原本针对的是每次 resume 的 SLPI 崩溃：sensors protection domain 的
 message buffer 必须从 remote heap 分配、不能走 SMMU context bank，而 SLPI 的 fastrpc
 节点恰好给 compute-cb 描述了 stream ID（`0x5a1`–`0x5a3`）。**这个判断在本机是错的**
-（见上：没有 remote heap，而且 context-bank 路径没有故障记录），**resume 的 SLPI
-崩溃仍未解决，需要换一条路查**。
+（见上：没有 remote heap，而且 context-bank 路径没有故障记录），补丁已移除。
 
-同一次 resume 还会连累用户态，这才是"自动旋转不工作"的直接原因：
-`/dev/fastrpc-sdsp` 被摘掉又在同一秒重建，`iio-sensor-proxy`（`Restart=no`，只被这个
+**那次 resume 崩溃已经有解，而且不在内核里。** 崩溃是"FastRPC 文件服务请求跨过
+s2idle 冻结"造成的：DSP 在 AP 冻结期间照跑，`hexagonrpcd` 连着的时候在途请求会让
+`sensor_process` 在解冻瞬间抛 `EX:sensor_process:0x1:frpc_dsp:0x6f`。解法就是**冻结前
+把 `hexagonrpcd` 停掉**——`xiaomi-book-12.4-sensors` 里的
+`50-hexagonrpcd-suspend.sh`（systemd sleep hook）做的正是这件事，2026-10-09 上机验证
+过：同一个内核，daemon 活着冻结 → 必崩；把 `.path` 和 service 都停掉再冻结 →
+**一次都不崩**，`/dev/fastrpc-sdsp` 不被摘、`iio-sensor-proxy` 不掉、mutter 的 claim
+也不用重跑。注意停的时候必须连 `hexagonrpcd-sdsp.path` 一起停，否则 systemd 会在服务
+停掉的瞬间又把它拉起来。
+
+**（没有那个 hook 时）**同一次 resume 还会连累用户态，这才是"自动旋转不工作"的直接
+原因：`/dev/fastrpc-sdsp` 被摘掉又在同一秒重建，`iio-sensor-proxy`（`Restart=no`，只被这个
 `.device` 拉起）把三个传感器全丢掉后退出，之后不再回来——总线上的
 `net.hadess.SensorProxy` 消失，mutter 拿不到加速度计。此时 SSC 本身是好的
 （`ssccli --sensor accelerometer` 仍能读到重力），hexagonrpcd 也会重推 registry。
