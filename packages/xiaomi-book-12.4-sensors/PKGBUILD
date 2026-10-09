@@ -27,6 +27,14 @@
 # The sdsp unit shipped here already carries "-R <registry root>"; the hand-made
 # setup used a systemd drop-in in /etc/systemd/system for that instead.
 #
+# 50-hexagonrpcd-suspend.sh is a system-sleep hook: the DSP keeps running while
+# the AP is frozen in s2idle, so a FastRPC file-serving request in flight at
+# that moment faults the SLPI's sensor process on resume.  The hook stops the
+# daemon before the freeze, starts it again afterwards, and restarts
+# iio-sensor-proxy if the DSP crashed anyway.  Without it auto-rotation stays
+# dead after every suspend (the proxy has Restart=no and exits when the
+# re-created FastRPC device takes the sensors away).
+#
 # The registry tarball is generated locally by
 # scripts/make-sensors-registry-tarball.sh and is not tracked by git: it is
 # vendor data extracted from Windows, the same policy as the firmware package.
@@ -34,7 +42,7 @@
 pkgname=xiaomi-book-12.4-sensors
 pkgver=0.5.0                        # the hexagonrpc release we build
 _registryver=1                      # separate counter for the registry tarball
-pkgrel=1
+pkgrel=2                            # 2: ship the suspend hook for the sensor stack
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): SLPI sensor stack (hexagonrpcd + SSC registry)"
 arch=('aarch64')
 url="https://github.com/linux-msm/hexagonrpc"
@@ -51,9 +59,11 @@ source=("hexagonrpc-$pkgver.tar.gz::https://github.com/linux-msm/hexagonrpc/arch
         '91-fastrpc-sensors.rules'
         '92-fastrpc-accel-matrix.rules'
         'fastrpc-sysusers.conf'
+        '50-hexagonrpcd-suspend.sh'
         'registry-provenance.md')
 sha256sums=('2173985932ab68d8ac593f9954357123bdbbbe9ba5f1b17a098d9cbcec22c5d5'
             '4e0f3df4c6f1b4842e59ce1a0d484dc375b3546460eacc30ed8cbe839b70102e'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
@@ -101,6 +111,14 @@ package() {
     # fastrpc user/group (previously created by hand with useradd)
     install -Dm644 "$srcdir/fastrpc-sysusers.conf" \
         "$pkgdir/usr/lib/sysusers.d/fastrpc.conf"
+
+    # Suspend hook: stops hexagonrpcd before the freeze and brings the stack
+    # back afterwards.  Without it every s2idle resume faults the SLPI, the
+    # FastRPC device is removed and re-created, and iio-sensor-proxy (whose
+    # Restart=no) exits with the sensors - auto-rotation then stays dead for
+    # the rest of the session.  See the comment inside the hook.
+    install -Dm755 "$srcdir/50-hexagonrpcd-suspend.sh" \
+        "$pkgdir/usr/lib/systemd/system-sleep/50-hexagonrpcd-suspend.sh"
 
     # SSC sensor registry: the tarball is laid out as usr/share/qcom/...
     cp -a "$srcdir/usr/." "$pkgdir/usr/"
