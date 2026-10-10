@@ -24,8 +24,7 @@ Server = https://github.com/CerteKim/zcc-aur/releases/latest/download
 sudo pacman -Syu
 sudo pacman -Ss zcc          # 看看有哪些
 sudo pacman -S linux-mibook ra9530-dkms xiaomi-book-12.4-config \
-               xiaomi-book-12.4-tools xiaomi-book-12.4-sensors \
-               iio-sensor-proxy-ssc
+               xiaomi-book-12.4-sensors iio-sensor-proxy-ssc
 
 # 可选：只有在你想快速迭代面板驱动时才需要（见「面板驱动做成 DKMS」）
 sudo pacman -S panel-himax-hx83121a-dkms
@@ -156,7 +155,7 @@ menu 选 `arch` → 或浏览到 `\EFI\Boot\bootaa64.efi` → 进系统后
 | **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**（见下文）。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus，外加 `*.jsn` 加载器元数据；**以及把固件放进 initramfs 的 mkinitcpio hook**。这些固件**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
 | **`xiaomi-book-12.4-config`** | ALSA UCM 配置、WCN3998 蓝牙地址修复（systemd 单元 + udev 规则 + `/etc/conf.d/bluetooth-bdaddr`）、GRUB 的 DTB 菜单项、**把键盘盖输入节点标成 internal 的 udev 规则（打字时禁触控板，见 SYSTEM-CONFIG.md §3.1）**、**RA9530 笔策略守护**（充电阈值 + 停靠时屏蔽笔输入，`ra9530-charge-policy.service`）。 |
-| **`xiaomi-book-12.4-tools`** | 日常/调试脚本：音频修复与硬件验证（`audio-level-test.sh`）、GPU 状态检查（`gpu-oc-check.sh`）、面板/DTB 切换、挂起测试（`suspend-test.sh`）、蓝牙地址安装等。旧的 libinput DWT quirk 安装脚本与 venus 固件重打包脚本已移除：前者被 config 包的 udev 规则取代（那条 quirk 在本机从未生效），后者属于已关闭的 VPU/视频探针。 |
+| ~~`xiaomi-book-12.4-tools`~~ | **已撤回（2026-10-10）**：它把 `aarch64-packages` 仓库的一批运维脚本又拷了一份进包，而系统上从未安装过（脚本一直是直接在仓库里跑的），两边的拷贝已经漂移。现在不再发布这个包，脚本以 `aarch64-packages` 的 `linux-surface/tools/` 为唯一副本。 |
 | **`xiaomi-book-12.4-sensors`** | **SLPI 传感器栈**：从源码编译的 `hexagonrpcd`（FastRPC 守护进程，上游 `linux-msm/hexagonrpc` v0.5.0）+ SSC 传感器**注册表**（从本机 Windows 提取）+ systemd 单元（含 `-R <registry root>`）+ FastRPC udev 规则 + `fastrpc` 用户/组。没有它，加速度计/光线传感器根本不会出现。 |
 | **`iio-sensor-proxy-ssc`** | 打过两个本地补丁的 `iio-sensor-proxy` 3.9（启动期 claim 竞态 + `ACCEL_MOUNT_MATRIX`）。用 `provides`/`conflicts` **替换**发行版那份 —— 装的时候 pacman 会问你要不要移除 `iio-sensor-proxy`，选是（mutter 的依赖由本包满足）。 |
 | **`qrtr` `qmic` `pd-mapper` `rmtfs` `tqftpserv`** | linux-msm 的**高通用户态服务栈**：IPC 路由器（qrtr）、QMI 客户端库（qmic）、保护域映射（pd-mapper）、远端文件系统服务（rmtfs）、给 DSP 供固件的 TFTP 服务（tqftpserv）。PKGBUILD 沿用 Maximilian Luz 的版本（上游 BSD）。`rmtfs` 本地改过一处：单元用 `-r -s -o /var/lib/rmtfs`（EFS 存目录而不是裸分区），原来靠 `/etc` 覆盖实现。 |

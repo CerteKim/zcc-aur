@@ -70,7 +70,7 @@ comm -23 onfs.txt owned.txt        # 差集 = 无主文件
 
 | 原来 | 现在 |
 |---|---|
-| `xiaomi-book-12.4-tools` 里的 `install-dwt-fix.sh` 手工运行（装一个 libinput quirk） | `xiaomi-book-12.4-config` **直接安装** `/usr/lib/udev/rules.d/99-xiaomi-book-cover-internal.rules`（udev 规则） |
+| 旧的 `tools/install-dwt-fix.sh` 手工运行（装一个 libinput quirk） | `xiaomi-book-12.4-config` **直接安装** `/usr/lib/udev/rules.d/99-xiaomi-book-cover-internal.rules`（udev 规则） |
 
 **根因（2026-10-07 定位）**：cover（`2717:5032`，键盘 / 触控板 / Mouse 是同一个 USB 复合
 设备）的 `removable=unknown`，udev 的 `65-integration.rules` 因此把它的**所有**输入节点
