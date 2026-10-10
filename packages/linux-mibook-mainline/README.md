@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 31 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 31 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 33 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 33 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -64,7 +64,8 @@ remoteproc remoteproc0: crash detected in slpi: type fatal error
 > 的，上机对比验证过（daemon 活着冻结 → 崩；停了再冻结 → 一次都不崩）。细节见下了
 > 面的"0032 已实测有害"那段。
 
-> **2026-10-09 下午：0032 已实测有害，从序列里移除（31 个补丁）。**
+> **2026-10-09 下午：旧 0032 已实测有害，从序列里移除。**
+> **（2026-10-10：序列现为 33 个；新的 0032/0033 是音频/麦克风修复，见下。）**
 >
 > 装上 32 补丁整包后 mainline 起不来（详见
 > `/home/certe/aarch64-packages/linux-surface/linux-7.2-boot-fail.md`：journal 只到
@@ -151,7 +152,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（31 个）
+## 补丁内容（33 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -173,13 +174,28 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 * `drm/msm/dpu: 不宣告 UBWC scanout` —— **待定**：原来怀疑的 UBWC 病根其实是 GBIF，
   恢复压缩 scanout 需要单独一轮上机验证
 
-音频 / SoundWire / SLIMbus（0010–0013、0017）：
+音频 / SoundWire / SLIMbus（0010–0013、0017、**0032–0033**）：
 
 * `ASoC: qcom: sdm845: Xiaomi Book 12.4 声卡`
 * `ASoC: wsa881x: PA 增益跨 DAPM 保持`
 * `ASoC: wcd934x: 预置 SLIM RX 端口 + 错误处理`
 * `slimbus: qcom-ngd: 后续 capability 消息里解析地址`
 * `soundwire: qcom: AHB/FIFO/IRQ 加固`
+* **`arm64: dts: qcom: sc8180x-xiaomi-book-12.4: enable the built-in microphones`**
+  （0032）—— 内置双麦在 WCD9340 的 DMIC0/DMIC1 上。sound 节点的
+  `audio-routing` 必须声明 `"DMICn" -> "MIC BIASx"`（否则 DAPM 不给 MIC BIAS
+  上电；数字麦无偏置即死）**和** `"DMICn" -> "MCLK"`（既有的
+  `"RX_BIAS" -> "MCLK"` 只在**播放**流里点亮 codec 时钟，纯采集流永远碰不到
+  RX_BIAS）。DMIC2..5 在这块板上没接，故意不描述。
+* **`ASoC: qcom: sdm845: narrow the Xiaomi Book 12.4 capture front end to S16_LE`**
+  （0033）—— 采集后端是 16 位（codec 的 `AIF1_CAP` DAI 只宣告 S16_LE，且所有
+  no_pcm link 都过 `sdm845_be_hw_params_fixup()` 钉成 48k/2ch/S16_LE），而采集
+  前端却宣告 S16/S24/S32，于是会话可以协商 S24_LE 并按 24 位宽度读一条 16 位流
+  —— PipeWire 正是如此（其节点报 `resolution_bits = 16` 而 PCM 跑 S24_LE），
+  结果是 `AC/|d| = 1.0` 的白噪声、左右零相关。这和播放侧当年"前端多宣告导致上层
+  挑错格式"是同一类 bug，修法也相同：把采集前端一并收窄到 S16_LE。`arecord`
+  一直干净，是因为它请求的就是 S16_LE（`-f S24_LE` 能出声靠的是 libasound 的
+  plug 层转换）。
 
 GPU / GMU（0007、0021–0028）：
 

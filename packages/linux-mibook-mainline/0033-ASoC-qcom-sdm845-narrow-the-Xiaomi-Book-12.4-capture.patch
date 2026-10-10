@@ -1,0 +1,79 @@
+From 2b87677043e097d21d97867232ca9a24e6ac267e Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 17:36:32 +0800
+Subject: [PATCH] ASoC: qcom: sdm845: narrow the Xiaomi Book 12.4 capture front
+ end to S16_LE
+
+Capture of the built-in microphone through a session (PipeWire) returned
+constant, per-channel-independent white noise while arecord on the same
+route was clean.
+
+The capture backend is a 16-bit stream: the WCD9340's SLIM TX capture DAI
+("wcd934x_tx1", AIF1_CAP -- what the SLIM Capture link binds) advertises
+S16_LE only, and every no_pcm link goes through sdm845_be_hw_params_fixup(),
+which pins 48 kHz / 2 channels / S16_LE.  The capture front end advertised
+S16/S24/S32, so a session could negotiate S24_LE and read a 16-bit stream
+at 24-bit width.  PipeWire does exactly that -- its node reports
+resolution_bits = 16 next to a PCM running S24_LE -- and the result is
+AC/|d| = 1.0 noise with zero inter-channel correlation.  arecord is clean
+because it asks for S16_LE, and its S24_LE appears to work only because
+libasound's plug layer converts.
+
+This is the same class of bug the playback direction already had, fixed
+the same way: an earlier change narrowed playback front ends to S16_LE
+because ACP picks S24_LE out of the advertised set and that path is 20-48
+dB down.  sdm845_fe_startup() returned early for capture on purpose --
+"the capture direction has its own, separate quirk" -- and this is it, so
+apply the same constraint to both directions.
+
+Measured before/after on the same input (AC/|d| well above 1 means real
+audio, ~1 means misread noise):
+
+	arecord -c 2 -f S16_LE   clean  (always)
+	pw-record                AC/|d| = 1.0  ->  clean after this change
+---
+ sound/soc/qcom/sdm845.c | 24 +++++++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index 2f52d8de23ad..be1ad0226fc2 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -552,7 +552,26 @@ static int sdm845_snd_hw_free(struct snd_pcm_substream *substream)
+  * Pinning the backend (sdm845_be_hw_params_fixup) is not enough on its own:
+  * the front ends advertise S16/S24/S32 and ACP picks S24_LE from that, so
+  * every player still landed on the quiet path.  Narrow the front end too.
+- * Playback only -- the capture direction has its own, separate quirk.
++ *
++ * Capture has the same class of quirk, in the other direction.  The capture
++ * backend is a 16-bit stream: the WCD9340's capture DAI for the SLIM TX path
++ * (AIF1_CAP / "wcd934x_tx1", which is what the SLIM Capture link binds)
++ * advertises only
++ *
++ *   .formats = SNDRV_PCM_FMTBIT_S16_LE
++ *
++ * and every no_pcm link -- capture included -- goes through
++ * sdm845_be_hw_params_fixup(), which pins 48 kHz / 2 channels / S16_LE.  The
++ * capture front end nevertheless advertises S16/S24/S32, and a session that
++ * negotiates S24_LE from that set reads a 16-bit stream at 24-bit width:
++ * constant, per-channel-independent white noise.  That is exactly what
++ * PipeWire does on this machine (its node reports resolution_bits = 16 while
++ * the PCM runs S24_LE), and it is why `arecord` is clean -- it asks for
++ * S16_LE, and when handed S24_LE it is libasound's plug layer converting, not
++ * the kernel.
++ *
++ * So narrow capture to S16_LE as well.  Playback and capture front ends are
++ * both "..MULTIMEDIA1..8" here, so the stream decides which is which.
+  */
+ static int sdm845_fe_startup(struct snd_pcm_substream *substream)
+ {
+@@ -560,8 +579,7 @@ static int sdm845_fe_startup(struct snd_pcm_substream *substream)
+ 	struct sdm845_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 
+-	if (!data->xiaomi_book_12_4 ||
+-	    substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
++	if (!data->xiaomi_book_12_4)
+ 		return 0;
+ 
+ 	switch (cpu_dai->id) {

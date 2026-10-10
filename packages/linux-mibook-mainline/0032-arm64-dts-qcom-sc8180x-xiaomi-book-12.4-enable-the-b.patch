@@ -1,0 +1,116 @@
+From 115089e55e8611cb55f2ca1d2086c0732ca8ad02 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 17:36:32 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: enable the
+ built-in microphones
+
+The board's two microphones sit on the WCD9340's DMIC0/DMIC1 inputs (they
+are digital MEMS parts; the AMIC2/MIC BIAS2 pair the sound node inherited
+from the Yoga C630 is the 3.5 mm headset microphone).  Both answer, and
+DMIC1 is the louder of the two.
+
+Nothing powered them: ASoC builds its DAPM graph from the sound node's
+audio-routing and the codec driver has no DMIC -> MIC BIAS route of its
+own, so the bias rail never came up and a digital microphone with no bias
+is dead.  Powering a "DMICn" widget also runs wcd934x_codec_enable_dmic(),
+which programs the codec's PDM clock, so the routes are what makes capture
+possible at all, not documentation.
+
+Each input gets two routes:
+
+	"DMICn" -> "MIC BIASx"   power for the microphone
+	"DMICn" -> "MCLK"        the codec's own clock
+
+The MCLK one is needed because the existing "RX_BIAS", "MCLK" route only
+powers the codec clock for a playback stream; a capture-only stream never
+touches RX_BIAS, so the codec's system clock, analog bias and PDM clock
+stayed off and enable_dmic()'s divider writes went nowhere.
+
+DMIC2..DMIC5 are deliberately not described: they were all tried while the
+input was being identified and only ever returned the DSP idle pattern, so
+those pads are not wired on this board.
+
+The array is a single mono source -- the two microphones share a PDM clock
+and a bias rail and the capture stream carries one of them -- so a second
+capture channel is not described; routing DMIC1 through DEC1/SLIM TX1
+yields no data.
+
+Verified with the codec registers during capture (MIC BIAS1 on at 1800 mV,
+CPE_SS_DMIC0_CTL bit 0 set, TX0 switched to its DMIC source) and by
+capturing speech through arecord -D hw:0,1 (ambient ~32k -> speech ~93k,
+DC ~0).
+---
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 57 +++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+index 93b743489ee4..a87e06227f8a 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -32,9 +32,66 @@
+ 		compatible = "xiaomi,book-12.4-sndcard", "qcom,sdm845-sndcard";
+ 		model = "Xiaomi Book 12.4";
+ 
++		/*
++		 * The board's two built-in microphones are digital MEMS parts on
++		 * the WCD9340's DMIC0/DMIC1 inputs; the AMIC2/MIC BIAS2 pair
++		 * above is the 3.5 mm headset microphone, not the internal array.
++		 * Both microphones are live (DMIC1 is the louder of the two).
++		 *
++		 * These routes are load-bearing, not documentation.  ASoC builds
++		 * its DAPM graph from this property and the codec driver has no
++		 * DMIC -> MIC BIAS route of its own, so without one DAPM never
++		 * powers the codec's MIC BIAS rail for these inputs.  A digital
++		 * MEMS microphone with no bias is simply dead.  Powering the
++		 * "DMICn" widget additionally runs wcd934x_codec_enable_dmic(),
++		 * which enables and rates the codec's PDM clock
++		 * (WCD934X_CPE_SS_DMICn_CTL, 4.8 MHz for the 9.6 MHz MCLK this
++		 * board uses).
++		 *
++		 * Without the routes there is no bias, no clock and a capture of
++		 * pure DSP idle.  Each input therefore gets both halves of its
++		 * path:
++		 *
++		 *   "DMICn" -> "MIC BIASx"    power for the microphone
++		 *   "DMICn" -> "MCLK"         the codec's own clock
++		 *
++		 * The MCLK route matters because "RX_BIAS", "MCLK" above only
++		 * powers the codec clock for a *playback* stream.  A capture-only
++		 * stream never touches RX_BIAS, so MCLK -- and with it the codec's
++		 * system clock, the analog bias and therefore the PDM clock that
++		 * wcd934x_codec_enable_dmic() is trying to program -- stayed off.
++		 * The codec's PDM divider writes are harmless while MCLK is dead,
++		 * which is exactly the kind of state that reads as "flat but not
++		 * obviously broken".
++		 *
++		 * Do NOT copy the vendor (sdmshrike) device tree's companion
++		 * "MIC BIASx", "Digital Mic n" routes: those sinks are widgets of
++		 * Qualcomm's downstream machine driver, mainline has no such
++		 * widget, and a route to a missing widget fails -- which is fatal,
++		 * because snd_soc_register_card() aborts when adding
++		 * card->of_dapm_routes fails and the card then does not exist at
++		 * all ("no soundcards", not even the speakers).  The codec's own
++		 * "DMICn" -> "DMICn Pin" route already models the physical input.
++		 *
++		 * Only the DMIC0/DMIC1 pair is described.  DMIC2..DMIC5 are not
++		 * connected on this board: they were tried while the input was
++		 * being identified and never produced anything but the DSP idle
++		 * pattern, and pads that are not wired need no description.
++		 *
++		 * The two microphones share one PDM clock and one bias rail, and
++		 * the capture stream carries one of them (the session picks via
++		 * the codec's "DMIC MUX0"), so the array is a single mono source.
++		 * A second capture channel would need the DSP-side channel map:
++		 * routing DMIC1 through DEC1/SLIM TX1 yields no data at all, so
++		 * it is not attempted here.
++		 */
+ 		audio-routing =
+ 			"RX_BIAS", "MCLK",
+ 			"AMIC2", "MIC BIAS2",
++			"DMIC0", "MIC BIAS1",
++			"DMIC0", "MCLK",
++			"DMIC1", "MIC BIAS1",
++			"DMIC1", "MCLK",
+ 			"SpkrLeft IN", "SPK1 OUT",
+ 			"SpkrRight IN", "SPK2 OUT";
+ 
