@@ -21,13 +21,14 @@
 # It used to carry prebuilt panel device trees; those were bring-up snapshots and
 # are superseded by the kernel source.  See the config package's history.
 #
-# Firmware lives in "xiaomi-book-12.4-firmware", the kernel in "linux-mibook",
-# the stylus charger driver in "ra9530-dkms", its userspace policy daemon here,
-# and the SLPI sensor stack in "xiaomi-book-12.4-sensors".
+# Firmware lives in "xiaomi-book-12.4-firmware", the kernel in
+# "linux-mibook-mainline", the stylus charger driver in "ra9530-dkms", its
+# userspace policy daemon here, and the SLPI sensor stack in
+# "xiaomi-book-12.4-sensors".
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=9
+pkgrel=10
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, cover-internal udev rule, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
@@ -55,7 +56,7 @@ source=(
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
 )
 sha256sums=(
-    '15d8611418eed158107da8bd639c8b2719d776704655659feb22f1c311b62cae'
+    '397f17513385dabaf0e2b8ec95f53110cba121c8268509a801d3d7bc7845d600'
     '3856760ba63f0606ccb11f58e19118ac699514bd78ed6fca18e7f848206f104f'
     'a0874bb7bb6453f1b1a87132e5c0024d1bd10f30cac5e86fbb295bea41ebc79c'
     '51f3ed8a757e5653c186dc26c44b0a96cc327918561f3e51db87af98d074ac7d'

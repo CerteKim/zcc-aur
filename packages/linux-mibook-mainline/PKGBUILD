@@ -2,24 +2,23 @@
 #
 # Mainline kernel for the Xiaomi Book S 12.4 (SC8180X / TM2133).
 #
-# packages/linux-mibook builds a git branch that carries the linux-surface
-# stack plus this board's patches, which costs a 3+ GB kernel clone as the
-# source.  This package builds a pristine Linux release tarball and applies a
-# self-contained patch set from patches/ instead: ~150 MB of source, and the
-# delta against upstream is a reviewable series.
+# This package builds a pristine Linux release tarball and applies a
+# self-contained patch set from this directory: ~150 MB of source, and the delta
+# against upstream is a reviewable series.
 #
-# The patch set is generated from the kernel mirror branch (see README.md and
-# regen-patches.sh):
+# The patches are a flat `git format-patch` export of the development branch
 #
-#   branch   xiaomi-mainline-7.2  in the linux-surface kernel mirror
-#   base     upstream v7.2        (the tarball below)
+#   branch   xiaomi-mainline-7.2   (based on upstream v7.2 - the tarball below)
 #
-# Patches deliberately left out (they are in packages/linux-mibook's branch but
-# not here): the parked IRIS1/VPU bring-up with its qcom_scm and mdt_loader
-# hooks, and everything 7.2 already carries upstream (the Himax HX83121A driver
-# and binding, the WCN3998 ROM version fix, the sdhci-msm HS400 clock doubling,
-# the a6xx IFPC NULL guard and preempt ordering, the phy sc8180x match entry,
-# the gcc-sc8180x PCIe GDSC retention, the fw_devlink timeout work).
+# so they are numbered 0001.. and renumbered whenever a commit is dropped.  See
+# AGENTS.md for how the series is maintained.
+#
+# It does not carry the parked IRIS1/VPU bring-up with its qcom_scm and
+# mdt_loader hooks, and it does not re-add anything 7.2 already has upstream (the
+# Himax HX83121A driver and binding, the WCN3998 ROM version fix, the sdhci-msm
+# HS400 clock doubling, the a6xx IFPC NULL guard and preempt ordering, the phy
+# sc8180x match entry, the gcc-sc8180x PCIe GDSC retention, the fw_devlink
+# timeout work).
 
 pkgbase="linux-mibook-mainline"
 pkgver="7.2"
@@ -116,8 +115,7 @@ _package() {
     echo "${pkgbase}" | install -Dm644 /dev/stdin "${modulesdir}/pkgbase"
 
     # The boot image GRUB and the mkinitcpio preset refer to (ALL_kver is
-    # /boot/vmlinuz-${pkgbase}).  The installed linux-mibook package carries its
-    # /boot image the same way, gzipped once: the Image is ~50 MB here and gzip
+    # /boot/vmlinuz-${pkgbase}), gzipped once: the Image is ~50 MB here and gzip
     # makes it ~19 MB.  GRUB and mkinitcpio both read a compressed kernel.
     msg2 "Installing /boot/vmlinuz-${pkgbase}..."
     install -d "${pkgdir}/boot"

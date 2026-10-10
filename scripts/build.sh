@@ -10,8 +10,8 @@
 #   ./scripts/build.sh --db               # 只重建数据库（产物已在 repo/ 时）
 #
 # 说明:
-#   * 内核包（linux-mibook）在 aarch64 上编译需要 1~2 小时，通常用
-#     tools/make-kernel-package.sh 或 makepkg 单独构建，再用 --collect 收进来。
+#   * 内核包（linux-mibook-mainline）在 aarch64 上编译需要 1~2 小时，通常
+#     单独 makepkg 构建，再用 --collect 收进来。
 #   * repo/ 里同一 pkgname 只保留最新版本；每次都会重建 db。
 #   * 产物：repo/zcc-aur.db.tar.gz（+ 解引用副本 zcc-aur.db、zcc-aur.files）
 

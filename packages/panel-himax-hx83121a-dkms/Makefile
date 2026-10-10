@@ -8,11 +8,8 @@
 # exported to modules - drm_panel_of_backlight(), __devm_drm_panel_alloc(),
 # the MIPI-DSI "..._multi" write helpers and drm_dsc_pps_payload_pack() - so
 # no in-tree change is needed to build it here.  Do not add kernel-internal
-# headers or non-exported symbols.  Verify with:
+# headers or non-exported symbols.  Verify by building out of tree:
 #
-#     ./scripts/sync-panel-dkms.sh          # refresh from the kernel tree
-#
-# By hand:
 #     make                                  # /lib/modules/$(uname -r)/build
 #     make KDIR=/path/to/built/kernel/tree
 #     make clean

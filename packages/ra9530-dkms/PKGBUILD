@@ -9,12 +9,13 @@
 # must be programmed before transmitting).
 #
 # This is a DKMS package: it only installs the sources into /usr/src and lets
-# DKMS build for whatever kernel is installed, so it works with linux-mibook and
-# with any other kernel that provides the device tree node.
+# DKMS build for whatever kernel is installed, so it works with
+# linux-mibook-mainline and with any other kernel that provides the device tree
+# node.
 
 pkgname=ra9530-dkms
 pkgver=1.0.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Renesas RA9530 wireless power transmitter — Xiaomi Book S 12.4 stylus charger (DKMS)"
 arch=('any')
 url="https://github.com/CerteKim/ra9530-mainline"
@@ -34,6 +35,6 @@ package() {
     cp -r "$src/dkms.conf" "$src/COPYING" "$src/driver" "$dst/"
 
     # Only the driver sources.  The device tree node comes from the kernel
-    # source (linux-mibook pins the commit whose .dts describes it), so this
-    # package does not touch /boot.
+    # source (linux-mibook-mainline's .dts describes it), so this package does
+    # not touch /boot.
 }

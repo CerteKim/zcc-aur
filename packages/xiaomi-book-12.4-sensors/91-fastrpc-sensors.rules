@@ -10,6 +10,6 @@
 # The accelerometer additionally needs the startup-claim patch to
 # iio-sensor-proxy, otherwise gnome-shell's early claim during proxy startup
 # leaves it dead for the whole session - see
-# ~/qcom-slpi/iio-sensor-proxy/0001-start-sensor-claimed-during-startup.patch
+# packages/iio-sensor-proxy-ssc/0001-ssc-accel-startup-claim-and-mount-matrix.patch
 SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"
 SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"

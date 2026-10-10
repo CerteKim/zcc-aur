@@ -1,3 +1,2 @@
-# 本地生成的传感器注册表 tarball（厂商数据，不进 git；由
-# scripts/make-sensors-registry-tarball.sh 生成）
+# 本地生成的传感器注册表 tarball（厂商数据，不进 git）
 xiaomi-book-12.4-sensors-registry-*.tar.zst

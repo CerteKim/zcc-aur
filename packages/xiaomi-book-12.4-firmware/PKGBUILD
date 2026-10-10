@@ -16,14 +16,34 @@
 # fresh installation got the firmware but not the hook - and the SLPI/CDSP come
 # up before the root filesystem is mounted.
 #
-# The tarball is generated locally by scripts/make-firmware-tarball.sh from the
-# installed firmware tree (or from a Windows mount) and is not tracked by git:
-# it is 30+ MB of proprietary blobs, and redistributing them is your call, not
-# something this repository should do by default.
+# The blobs are proprietary and 30+ MB, so they are not tracked by git and the
+# repository ships no script to collect them: this package is normally installed
+# from the binary in the GitHub Release.  To build it yourself, stage the files
+# below (relative to $pkgdir) and pack them as
+#
+#     tar -C <stage> --zstd -cf $pkgname-$pkgver.tar.zst usr
+#
+# usr/lib/firmware/qcom/XIAOMI/BOOK124/  qcdxkmsuc8180.mbn (GPU zap shader)
+#                                        qcadsp8180.mbn    (ADSP)
+#                                        qccdsp8180.mbn    (CDSP)
+#                                        qcslpi8180.mbn    (SLPI)
+#                                        qcmpss8180_nm.mbn (MPSS, no-modem)
+#                                        qcvss8180.mbn     (VPU/venus)
+#                                        wlanmdsp.mbn      (WiFi)
+#                                        qdsp6m.qdb        (DSP database)
+#                                        adspr.jsn adspua.jsn cdspr.jsn
+#                                        charger.jsn modemr.jsn modemuw.jsn
+# usr/lib/firmware/qcom/sc8180x/         venus.mbn venus-noreloc.mbn
+# usr/lib/firmware/qcom/                 a680_sqe.fw a680_gmu.bin
+#
+# The `qcom/a680_*` pair is not in linux-firmware-qcom (it has a630/a640/a650/
+# a660 but no a680); without it the kernel reports
+# "adreno_request_fw: failed to load a680_sqe.fw" and there is no GPU
+# acceleration.
 
 pkgname=xiaomi-book-12.4-firmware
 pkgver=1
-pkgrel=3
+pkgrel=4
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): vendor firmware for ADSP/CDSP/SLPI/MPSS/WLAN/venus/Adreno680"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
@@ -31,18 +51,14 @@ license=('custom: proprietary vendor firmware')
 options=('!strip')
 install="$pkgname.install"
 source=("$pkgname-$pkgver.tar.zst"
-        'firmware-provenance.md'
         'xiaomi-book124-firmware')
-# 该 tarball 由 scripts/make-firmware-tarball.sh 在本机生成，所以这里用 SKIP；
-# 如果你要固定校验，生成后把 sha256 填进来即可。
+# 该 tarball 是厂商 blob、不随仓库分发，所以这里用 SKIP；
+# 如果你要固定校验，自己打好包后把 sha256 填进来即可。
 sha256sums=('SKIP'
-            'SKIP'
             'bbd34c7beba28f6cafe507a07be68a94a254a430a06acdb408679fe22c504379')
 
 package() {
     cp -a usr "$pkgdir/"
-    install -Dm644 firmware-provenance.md \
-        "$pkgdir/usr/share/doc/$pkgname/provenance.md"
 
     # mkinitcpio hook, shipped instead of hand-placed: add
     # "xiaomi-book124-firmware" to HOOKS in /etc/mkinitcpio.conf (before kms).

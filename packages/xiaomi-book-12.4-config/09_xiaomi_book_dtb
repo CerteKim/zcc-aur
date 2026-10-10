@@ -16,16 +16,18 @@
 #
 # or simply never select them.
 #
-# /vmlinuz-linux-mibook and /initramfs-linux-mibook.img are the stable names the
-# kernel package installs, so these entries survive kernel upgrades.  Their
-# content is only wrong if the device tree path or the kernel options change.
+# /vmlinuz-<pkgbase> and /initramfs-<pkgbase>.img are the stable names a kernel
+# package installs, so these entries survive kernel upgrades.  Their content is
+# only wrong if the device tree path or the kernel options change.
+#
+# An entry is emitted for every kernel package listed in KERNELS that is present
+# in /boot together with its DTB: the first one is the default (GRUB_DEFAULT=0),
+# the rest remain as fallback entries.
 
 set -e
 
-DTB=/dtb/linux-mibook/qcom/sc8180x-xiaomi-book-12.4.dtb
-VMLINUZ=/vmlinuz-linux-mibook
-INITRAMFS=/initramfs-linux-mibook.img
-INITRAMFS_FALLBACK=/initramfs-linux-mibook-fallback.img
+DTB_REL=qcom/sc8180x-xiaomi-book-12.4.dtb
+KERNELS="linux-mibook-mainline linux-mibook"
 
 # Hardware options this port needs.  clk_ignore_unused/pd_ignore_unused keep
 # the unused clocks and power domains on, arm64.nopauth skips the UEFI memory
@@ -51,15 +53,35 @@ fi
 
 CMDLINE="root=UUID=$root_uuid rw $EXTRA $distro_opts"
 
-cat <<EOF
-menuentry 'Arch Linux (Xiaomi Book S 12.4)' --class arch --class gnu-linux --class os {
-	linux	$VMLINUZ $CMDLINE
-	devicetree $DTB
-	initrd	$INITRAMFS
+emit_entries() {
+    cat <<EOF
+menuentry 'Arch Linux (Xiaomi Book S 12.4, $1)' --class arch --class gnu-linux --class os {
+	linux	/vmlinuz-$1 $CMDLINE
+	devicetree /dtb/$1/$DTB_REL
+	initrd	/initramfs-$1.img
 }
-menuentry 'Arch Linux (Xiaomi Book S 12.4, fallback initramfs)' --class arch --class gnu-linux --class os {
-	linux	$VMLINUZ $CMDLINE
-	devicetree $DTB
-	initrd	$INITRAMFS_FALLBACK
+menuentry 'Arch Linux (Xiaomi Book S 12.4, $1, fallback initramfs)' --class arch --class gnu-linux --class os {
+	linux	/vmlinuz-$1 $CMDLINE
+	devicetree /dtb/$1/$DTB_REL
+	initrd	/initramfs-$1-fallback.img
 }
 EOF
+}
+
+emitted=0
+for kernel in $KERNELS; do
+    [ -f "/boot/vmlinuz-$kernel" ] || continue
+    [ -f "/boot/dtb/$kernel/$DTB_REL" ] || continue
+    emit_entries "$kernel"
+    emitted=1
+done
+
+# /boot is normally mounted when grub-mkconfig runs.  If nothing matched, emit an
+# entry for the preferred kernel anyway rather than a menu that cannot boot this
+# machine - its firmware provides no device tree of its own.
+if [ "$emitted" -eq 0 ]; then
+    preferred=${KERNELS%% *}
+    echo "09_xiaomi_book_dtb: /boot 下找不到带 $DTB_REL 的内核（$KERNELS 都没装？/boot 没挂？）" >&2
+    echo "09_xiaomi_book_dtb: 仍然为 $preferred 生成条目。" >&2
+    emit_entries "$preferred"
+fi

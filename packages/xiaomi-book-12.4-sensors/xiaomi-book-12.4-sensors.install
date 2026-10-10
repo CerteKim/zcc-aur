@@ -47,8 +47,8 @@ post_install() {
     echo "==> Xiaomi Book S 12.4 SLPI 传感器栈"
     _enable_stack
     echo
-    echo "==> 屏幕自动旋转还需要打补丁的 iio-sensor-proxy（iio-sensor-proxy-ssc）"
-    echo "    和 GNOME 侧的 mutter#4931 workaround（见仓库 README 的 SYSTEM-CONFIG.md）"
+    echo "==> 屏幕自动旋转还需要打补丁的 iio-sensor-proxy（iio-sensor-proxy-ssc），"
+    echo "    以及 GNOME 侧的 mutter#4931 workaround（见仓库 README）"
 }
 
 post_upgrade() {

@@ -11,11 +11,11 @@
 #     exposes the SSC to userspace; iio-sensor-proxy talks to it through libssc;
 #   * the SSC sensor *registry*, which tells the SSC how each sensor is wired.
 #     It is not part of hexagonrpc and has to come from this machine's Windows
-#     installation (see registry-provenance.md); without it the SSC answers
-#     "registry sensor unavailable" forever and no sensor ever appears.
+#     installation; without it the SSC answers "registry sensor unavailable"
+#     forever and no sensor ever appears.
 #
-# Both used to be installed by hand from ~/qcom-slpi/install.sh, together with
-# the fastrpc user/group (now a sysusers.d file) and the FastRPC udev rules.
+# Both used to be installed by hand, together with the fastrpc user/group (now
+# a sysusers.d file) and the FastRPC udev rules.
 # Rule 91-fastrpc-sensors.rules works around a real gap in upstream's
 # 80-iio-sensor-proxy.rules: that one only tags the FastRPC DSP device with
 # "ssc-light ssc-compass", so iio-sensor-proxy never engages drv-ssc-accel.c or
@@ -35,14 +35,22 @@
 # dead after every suspend (the proxy has Restart=no and exits when the
 # re-created FastRPC device takes the sensors away).
 #
-# The registry tarball is generated locally by
-# scripts/make-sensors-registry-tarball.sh and is not tracked by git: it is
-# vendor data extracted from Windows, the same policy as the firmware package.
+# The registry tarball is vendor data extracted from Windows, so it is not
+# tracked by git and the repository ships no script to collect it: this package
+# is normally installed from the binary in the GitHub Release.  To build it
+# yourself, stage the extracted tree as
+#
+#     usr/share/qcom/sc8180x/XIAOMI/BOOK124/sensors/config/*.json
+#     usr/share/qcom/sc8180x/XIAOMI/BOOK124/sensors/registry/*
+#
+# and pack it as
+#
+#     tar -C <stage> --zstd -cf $pkgname-registry-$_registryver.tar.zst usr
 
 pkgname=xiaomi-book-12.4-sensors
 pkgver=0.5.0                        # the hexagonrpc release we build
 _registryver=1                      # separate counter for the registry tarball
-pkgrel=2                            # 2: ship the suspend hook for the sensor stack
+pkgrel=3                            # 3: drop the bundled provenance note
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): SLPI sensor stack (hexagonrpcd + SSC registry)"
 arch=('aarch64')
 url="https://github.com/linux-msm/hexagonrpc"
@@ -59,11 +67,9 @@ source=("hexagonrpc-$pkgver.tar.gz::https://github.com/linux-msm/hexagonrpc/arch
         '91-fastrpc-sensors.rules'
         '92-fastrpc-accel-matrix.rules'
         'fastrpc-sysusers.conf'
-        '50-hexagonrpcd-suspend.sh'
-        'registry-provenance.md')
+        '50-hexagonrpcd-suspend.sh')
 sha256sums=('2173985932ab68d8ac593f9954357123bdbbbe9ba5f1b17a098d9cbcec22c5d5'
             '4e0f3df4c6f1b4842e59ce1a0d484dc375b3546460eacc30ed8cbe839b70102e'
-            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
@@ -122,7 +128,4 @@ package() {
 
     # SSC sensor registry: the tarball is laid out as usr/share/qcom/...
     cp -a "$srcdir/usr/." "$pkgdir/usr/"
-
-    install -Dm644 "$srcdir/registry-provenance.md" \
-        "$pkgdir/usr/share/doc/$pkgname/provenance.md"
 }

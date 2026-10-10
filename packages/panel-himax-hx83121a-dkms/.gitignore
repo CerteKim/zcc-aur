@@ -1,4 +1,4 @@
-# 出树编译（scripts/sync-panel-dkms.sh 的体检、或手动 make）留下的产物
+# 出树编译（手动 make）留下的产物
 *.o
 *.ko
 *.mod

@@ -39,7 +39,7 @@ post_install() {
     else
         echo "!! DKMS 构建失败。最常见的原因是缺少当前内核的构建目录："
         echo "     /lib/modules/$(uname -r)/build"
-        echo "   装好对应内核（例如 linux-mibook）后手动重试："
+        echo "   装好对应内核（例如 linux-mibook-mainline）后手动重试："
         echo "     sudo dkms install -m $MODNAME -v $MODVER --force"
     fi
 
@@ -48,7 +48,7 @@ post_install() {
     if [ -d /proc/device-tree/soc@0/geniqup@8c0000/i2c@89c000/charger@3b ]; then
         echo "    ✓ 已存在"
     else
-        echo "    ✗ 不存在 —— 当前内核的 DTB 不是由本仓库的 linux-mibook 构建的。"
+        echo "    ✗ 不存在 —— 当前内核的 DTB 不是由本仓库的 linux-mibook-mainline 构建的。"
         echo "      请改用该内核包（其源码已描述该节点），见 github.com/CerteKim/zcc-aur"
     fi
 

@@ -31,7 +31,7 @@ _warn_if_builtin() {
     local cfg="/lib/modules/$(uname -r)/build/.config"
     if [ -r "$cfg" ] && grep -q "^$CONFIG_SYM=y" "$cfg"; then
         echo "!! 当前内核里 $CONFIG_SYM=y（编进了内核），DKMS 模块不会被使用。"
-        echo "   需要 $CONFIG_SYM=m 的内核：本仓库的 linux-mibook 已经是 =m，"
+        echo "   需要 $CONFIG_SYM=m 的内核：本仓库的 linux-mibook-mainline 已经是 =m，"
         echo "   重编并安装该内核后重新执行："
         echo "     sudo dkms install -m $MODNAME -v $MODVER --force"
         echo "     sudo mkinitcpio -P"
@@ -59,7 +59,7 @@ post_install() {
     else
         echo "!! DKMS 构建失败。最常见的原因是缺少当前内核的构建目录："
         echo "     /lib/modules/$(uname -r)/build"
-        echo "   装好本仓库的内核与头文件包（linux-mibook + linux-mibook-headers）后重试："
+        echo "   装好本仓库的内核与头文件包（linux-mibook-mainline + linux-mibook-mainline-headers）后重试："
         echo "     sudo dkms install -m $MODNAME -v $MODVER --force"
     fi
 }
