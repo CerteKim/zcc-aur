@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 34 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 34 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 35 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 35 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -66,7 +66,7 @@ remoteproc remoteproc0: crash detected in slpi: type fatal error
 
 > **2026-10-09 下午：旧 0032 已实测有害，从序列里移除。**
 > **（2026-10-10：当时序列为 33 个；新的 0032/0033 是音频/麦克风修复，见下。
-> 之后又加了显示侧的 0034，见"补丁内容"。）**
+> 之后又加了显示侧的 0034，以及采集增益限幅的 0035，见"补丁内容"。）**
 >
 > 装上 32 补丁整包后 mainline 起不来（详见
 > `/home/certe/aarch64-packages/linux-surface/linux-7.2-boot-fail.md`：journal 只到
@@ -153,7 +153,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（34 个）
+## 补丁内容（35 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -190,7 +190,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
   `LPG_PREDIV_CLK_REG` 重算）为 `53230/53230 ns`，且 `max_brightness` 由 4095 变
   3326（`pwm-backlight` 的档位数 = `DIV_ROUND_UP(period, fls(period))`，上限 4096）。
 
-音频 / SoundWire / SLIMbus（0010–0013、0017、**0032–0033**）：
+音频 / SoundWire / SLIMbus（0010–0013、0017、**0032–0033、0035**）：
 
 * `ASoC: qcom: sdm845: Xiaomi Book 12.4 声卡`
 * `ASoC: wsa881x: PA 增益跨 DAPM 保持`
@@ -212,6 +212,24 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
   挑错格式"是同一类 bug，修法也相同：把采集前端一并收窄到 S16_LE。`arecord`
   一直干净，是因为它请求的就是 S16_LE（`-f S24_LE` 能出声靠的是 libasound 的
   plug 层转换）。
+* **`ASoC: qcom: sdm845: cap the Xiaomi Book 12.4 capture volume at 0 dB`**
+  （0035）—— 采集通路的"低噪"其实主要是增益：`DEC0 Volume` 是 TX 数字增益
+  （DMIC/AMIC → ADC → DEC0 → SLIM TX0 → MultiMedia2），和上面已被限幅的 RX 音量
+  一样是**有符号 dB 控件**（raw 0 = -84 dB、84 = 0 dB、124 = +40 dB），而 UCM 把它
+  当作采集音量暴露给会话，于是 WirePlumber 把滑块 100% 映射到控件**最大值
+  +40 dB**，桌面默认的 ~45% 就落在 **+19 dB**。实测底噪随这个控件 **1:1** 变化
+  （`pw-record`、DMIC0、左声道、100 ms RMS 中位数，同一会话同一房间）：
+  raw 64（-20 dB）-68.2 dBFS、raw 84（0 dB）-47.8 dBFS、raw 124（+40 dB）
+  -7.8 dBFS —— 即 -20.4 dB / +40.0 dB，正好等于控件自身的步进；另一组 `arecord`
+  采样复现同一关系（0 dB -46.8 dBFS、+19 dB -28.5 dBFS）。频谱里每一根离散谱线
+  （193 Hz、2.0/3.5/8.8/9.8/11.0 kHz…）按同比例缩放，说明这个增益之后没有再引入
+  任何东西。**决定性对照**：把 `DMIC MUX0` 设为 `ZERO`（不选任何麦克风）后采集
+  整段是逐样本全零，证明 codec/DEC/SLIM/ADSP 这条链路本身干净，噪声全部来自
+  麦克风侧。修法与 RX 相同 —— `snd_soc_limit_volume(card, "DEC0 Volume", 84)`，
+  100% 即 0 dB，会话只能往下调；0 dB 并不紧张，安静房间里最响的 100 ms 窗已经是
+  -11 dBFS。耳机麦共用这个抽取器（UCM 路由是 AMIC → ADC2 → 同一个 TX0），保留
+  `ADC2 Volume` 作为自己的增益，所以同样被限幅 —— 这与 UCM 既有行为一致（其内置
+  麦序列本来就把 DEC0 设成 84，切到耳机麦也从未抬高过）。
 
 GPU / GMU（0007、0021–0028）：
 

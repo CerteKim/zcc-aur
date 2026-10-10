@@ -1,0 +1,73 @@
+From cfafc72f0962bf2d447b49725737133e88613af6 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 21:40:53 +0800
+Subject: [PATCH] ASoC: qcom: sdm845: cap the Xiaomi Book 12.4 capture volume
+ at 0 dB
+
+"DEC0 Volume" is the WCD934x TX digital gain of the capture path (DMIC or
+AMIC -> ADC -> DEC0 -> SLIM TX0 -> MultiMedia2) and, like the RX digital
+volumes this block already caps, it is a signed dB control: raw 0 is
+-84 dB, raw 84 is 0 dB and raw 124 is +40 dB.  The UCM exposes it as the
+capture volume, so WirePlumber maps the source slider's 100% onto the
+control's *maximum*, +40 dB, and the ordinary ~45% desktop setting lands
+at +19 dB.
+
+The microphone's noise floor follows that control exactly, so those 19 dB
+are nothing but microphone-side noise being amplified, and are heard as
+constant hiss.  Measured on the board with pw-record on DMIC0, left
+channel, 100 ms RMS medians, same session and room:
+
+	raw 64  (-20 dB)  -68.2 dBFS
+	raw 84  (  0 dB)  -47.8 dBFS
+	raw 124 (+40 dB)   -7.8 dBFS
+
+That is -20.4 dB and +40.0 dB against 0 dB, i.e. the control's own steps.
+Every discrete line in the spectrum scales by the same factor, so nothing
+is injected after this gain.  With "DMIC MUX0" set to ZERO (no microphone
+selected) the same capture is bit-exact silence for its whole length,
+which confirms the codec/DEC/SLIM/ADSP chain on its own is clean.  A
+second pair of captures with arecord reproduces the relation (0 dB
+-46.8 dBFS, +19 dB -28.5 dBFS).
+
+Cap it at 84 (0 dB), exactly like RX1/RX2/RX7/RX8 above, so that 100% on
+the desktop slider is 0 dB and the session can only attenuate.  0 dB is
+not a tight limit: the loudest 100 ms window in a quiet room is already
+-11 dBFS.  The headset microphone shares this decimator (its UCM route is
+AMIC -> ADC2 -> the same TX0) and keeps "ADC2 Volume" as its own gain, so
+it is capped the same way -- which is what the UCM already produced: its
+internal microphone sequence set DEC0 to 84, and switching to the headset
+never raised it.
+---
+ sound/soc/qcom/sdm845.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index be1ad0226fc2..76fa69e62ac5 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -347,6 +347,25 @@ static int sdm845_dai_init(struct snd_soc_pcm_runtime *rtd)
+ 			snd_soc_limit_volume(card, "RX2 Digital Volume", 84);
+ 			snd_soc_limit_volume(card, "RX7 Digital Volume", 84);
+ 			snd_soc_limit_volume(card, "RX8 Digital Volume", 84);
++
++			/*
++			 * The capture side has exactly the same trap.  "DEC0
++			 * Volume" is the TX digital gain of the capture path
++			 * (DMIC/AMIC -> ADC -> DEC0 -> SLIM TX0 -> MultiMedia2)
++			 * and is likewise signed dB with a +40 dB maximum, so
++			 * WirePlumber maps the source slider's 100% onto
++			 * +40 dB and the ordinary ~45% desktop setting lands at
++			 * +19 dB.  Measured on this machine, the microphone's
++			 * noise floor tracks the control 1:1 in an unchanged
++			 * room: -68.9 dBFS at -20 dB (raw 64), -49.4 dBFS at
++			 * 0 dB (raw 84) and -30.5 dBFS at +19 dB (raw 103) --
++			 * i.e. most of what is audible as constant hiss is
++			 * nothing but digital gain applied to the microphone's
++			 * own noise.  0 dB is plenty for both the internal array
++			 * and a headset (those keep ADC2 Volume for gain), so
++			 * cap it there and let the session only attenuate.
++			 */
++			snd_soc_limit_volume(card, "DEC0 Volume", 84);
+ 		}
+ 
+ 		for_each_rtd_codec_dais(rtd, i, codec_dai) {

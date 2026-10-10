@@ -3,6 +3,8 @@ packages/*/pkg/
 packages/*/src/
 packages/*/*.pkg.tar.*
 packages/*/*.pkg.tar.*.sig
+# 内核包生成的合并配置（base.config + xiaomi-only.config + olddefconfig）
+packages/*/full.config
 
 # 本地仓库目录（db 与二进制包，通过 GitHub Release 分发）
 repo/
