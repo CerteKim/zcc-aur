@@ -1,0 +1,98 @@
+From 961f511f5dae3cd4edce696313d7d290c5f10e73 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 20:09:20 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: correct the
+ backlight PWM frequency
+
+The panel node declares the period the bootloader leaves in the PMC8180C
+LPG: 851667 ns, which is 1174.2 Hz at the 511 step resolution the channel
+is already using.  The vendor panel XML (PanelName PNC357DB1-4, returned
+by the GPU0 _ROM method) asks for a 19200 Hz, 9-bit backlight PWM
+instead, so the board has been running the backlight about 16x slower
+than the firmware it was brought up by.
+
+The period cannot simply be set to the vendor's value, because
+pwm-qcom-lpg quantises it to
+
+	resolution * pre_div * 2^M / refclk
+
+with resolution {63, 511}, pre_div {1, 3, 5, 6}, M [0..7] and refclk
+{1024, 32768, 19200000}.  19200 Hz is 1000 counts at 19.2 MHz and the
+period field is only 6 or 9 bits wide, so the exact value is out of
+reach: with 9-bit resolution the reachable periods below 100 us are
+multiples of 26614.58 ns, i.e. 53230 ns (18786 Hz) or 79844 ns
+(12524 Hz).
+
+Ask for 53230 ns.  It resolves to 511 * 2 / 19200000 = 53230 ns, so
+18786 Hz, 2.2% below the vendor's 19200 Hz.  Do not "fix" it to the
+vendor's exact period: a request of 52083 ns selects the 6-bit
+resolution instead and lands on 52500 ns (19048 Hz), which is 1.4%
+closer in frequency for an eighth of the duty resolution.  Any request
+of 53230 ns or more selects the 9-bit solution.
+
+Verified on the board after installing the DTB:
+
+  $ sudo cat /sys/kernel/debug/pwm | grep -A2 backlight
+   pwm-4   (backlight           ): requested
+    requested configuration:  enabled, 53230/53230 ns, normal polarity
+    actual configuration:     enabled, 53230/53230 ns, normal polarity
+
+The second line comes back from lpg_pwm_get_state(), which recomputes the
+period from LPG_SIZE_CLK_REG/LPG_PREDIV_CLK_REG, so the hardware is
+running 18786 Hz.  max_brightness moving from 4095 to 3326 is the
+expected consequence in pwm-backlight, whose level count is
+DIV_ROUND_UP(period, fls(period)) capped at 4096.
+---
+ .../dts/qcom/sc8180x-xiaomi-book-12.4.dts     | 32 +++++++++++++++----
+ 1 file changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+index a87e06227f8a..3e769772a93b 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180x-xiaomi-book-12.4.dts
+@@ -256,19 +256,39 @@
+ 
+ 	/*
+ 	 * Panel backlight: LPG channel 5 on the PMC8180C (register base 0xbd00,
+-	 * PWM channel index 4).  The bootloader leaves it running at ~1.17 kHz,
+-	 * 256 of 511 duty; nothing in Linux used to touch it, which is why the
+-	 * brightness never changed.  Lowering/raising this duty clearly dims and
++	 * PWM channel index 4).  Lowering/raising the duty clearly dims and
+ 	 * brightens the panel, while the PMC8180C WLED block the panel used to
+ 	 * point at reads back as all zeroes and controls nothing.
+ 	 *
+-	 * No brightness-levels table on purpose: pwm-backlight then uses its
+-	 * CIE1931 curve with 4096 levels, which is a sane slider response.
++	 * The vendor panel XML (PanelName PNC357DB1-4, in the GPU0 _ROM) asks
++	 * for a 19200 Hz, 9-bit backlight PWM.  The bootloader instead leaves
++	 * the LPG at 851667 ns (1174.2 Hz, 256 of 511 duty), which is what this
++	 * node declared while nothing in Linux touched it - the reason the
++	 * brightness never changed.
++	 *
++	 * The period cannot be set freely: pwm-qcom-lpg quantises it to
++	 * resolution * pre_div * 2^M / refclk, with resolution {63, 511},
++	 * pre_div {1, 3, 5, 6}, M [0..7] and refclk {1024, 32768, 19200000}.
++	 * 53230 ns is the reachable value closest to the vendor's 19200 Hz that
++	 * still selects the 9-bit (511 step) resolution: it resolves to
++	 * 511 * 2 / 19200000 = 53230 ns = 18786 Hz.
++	 *
++	 * 19200 Hz itself is out of reach - it is 1000 counts at 19.2 MHz and
++	 * the period field is only 6 or 9 bits wide - and asking for its exact
++	 * period (52083 ns) is worse than useless: that lands on the 6-bit
++	 * resolution instead, giving 52500 ns (19048 Hz) at 63 duty steps, i.e.
++	 * 1.4% closer in frequency for an eighth of the duty resolution.
++	 *
++	 * No brightness-levels table on purpose: pwm-backlight then derives its
++	 * level count from the period and fills it with the CIE1931 curve, which
++	 * is a sane slider response.  The count is DIV_ROUND_UP(period,
++	 * fls(period)) capped at 4096, so it follows the period: 4096 levels at
++	 * the bootloader's 851667 ns, 3327 at this one.
+ 	 */
+ 	backlight: backlight {
+ 		compatible = "pwm-backlight";
+ 
+-		pwms = <&pmc8180c_lpg 4 851667>;
++		pwms = <&pmc8180c_lpg 4 53230>;
+ 	};
+ 
+ 	pmic-glink {

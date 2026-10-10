@@ -7,8 +7,8 @@ tarball + 一套自带的补丁集**。
 
 | | `linux-mibook` | `linux-mibook-mainline` |
 | --- | --- | --- |
-| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 33 个补丁文件 |
-| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 33 个补丁文件，`git format-patch` 的产物 |
+| 源 | 本地内核镜像的 `xiaomi-mainline-panel2` 分支（6.18.2，含 linux-surface 栈） | `cdn.kernel.org` 的 `linux-7.2.tar.xz`（160 MB）+ 34 个补丁文件 |
+| 与上游的差 | 一个 3+ GB 的 clone，差分不可读 | 34 个补丁文件，`git format-patch` 的产物 |
 | 视频（IRIS/VPU） | 带 parked 的 bring-up 代码 | 不带（驱动不移植，DT 节点保持 disabled） |
 
 ## 状态（2026-10-08 晚）：7.2 的 GPU/GMU 静默停摆已修复
@@ -65,7 +65,8 @@ remoteproc remoteproc0: crash detected in slpi: type fatal error
 > 面的"0032 已实测有害"那段。
 
 > **2026-10-09 下午：旧 0032 已实测有害，从序列里移除。**
-> **（2026-10-10：序列现为 33 个；新的 0032/0033 是音频/麦克风修复，见下。）**
+> **（2026-10-10：当时序列为 33 个；新的 0032/0033 是音频/麦克风修复，见下。
+> 之后又加了显示侧的 0034，见"补丁内容"。）**
 >
 > 装上 32 补丁整包后 mainline 起不来（详见
 > `/home/certe/aarch64-packages/linux-surface/linux-7.2-boot-fail.md`：journal 只到
@@ -152,7 +153,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 # PKGBUILD: 改 pkgver/pkgrel、tarball URL 与第一项 sha256sums
 ```
 
-## 补丁内容（33 个）
+## 补丁内容（34 个）
 
 设备树 / binding（0001–0003、0015、0016、0029）：
 
@@ -163,7 +164,7 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 * `arm64: dts: qcom: add the Xiaomi Book S 12.4 (a51)`
 * `arm64: dts: qcom: sc8180x-xiaomi-book-12.4: drop the duplicate PCIe2 PERST#`
 
-显示（0004–0006、0018–0020）：
+显示（0004–0006、0018–0020、0034）：
 
 * `drm/panel: himax-hx83121a: CSOT PNC357DB1-4`（单 DSI0 + 单 DSC slice）
 * `drm/msm/dpu: 单接口单 slice 用一个 DSC block`
@@ -173,6 +174,21 @@ git -C /home/certe/aarch64-packages/linux-surface/kernel fetch --no-tags \
 * `drm/msm/dpu: DSC active width 用 DIV_ROUND_UP`
 * `drm/msm/dpu: 不宣告 UBWC scanout` —— **待定**：原来怀疑的 UBWC 病根其实是 GBIF，
   恢复压缩 scanout 需要单独一轮上机验证
+* **`arm64: dts: qcom: sc8180x-xiaomi-book-12.4: correct the backlight PWM frequency`**
+  （0034）—— 背光 LPG 的周期之前声明的是引导程序遗留的 `851667 ns`（1174.2 Hz），
+  而原厂 panel XML（`PanelName PNC357DB1-4`，在 GPU0 `_ROM` 里）要的是
+  **19200 Hz / 9-bit**，差了约 16 倍。不能直接写原厂值：`pwm-qcom-lpg` 会把周期
+  量化成 `resolution × pre_div × 2^M / refclk`（resolution {63, 511}、pre_div
+  {1, 3, 5, 6}、M [0..7]、refclk {1024, 32768, 19200000}），而 19200 Hz 是
+  19.2 MHz 下的 1000 个计数，周期字段只有 6/9 位宽，**精确值不可达**；9-bit 下
+  100 µs 以内只有 `26614.58 × k` ns 这些格点（53.2 µs / 79.8 µs …）。取
+  `53230 ns`（= 511 × 2 / 19.2 MHz）得到 **18786 Hz**，比原厂低 2.2%。
+  **陷阱**：填原厂的 `52083 ns` 会掉到 6-bit 分辨率、落到 `52500 ns` —— 频率只近
+  1.4%，占空却从 511 级掉到 63 级；必须从上方逼近（请求 ≥ `53230 ns` 才选 9-bit）。
+  上机验证：`/sys/kernel/debug/pwm` 的 `actual configuration`（走
+  `pwm_get_state_hw()` → `lpg_pwm_get_state()`，从 `LPG_SIZE_CLK_REG` /
+  `LPG_PREDIV_CLK_REG` 重算）为 `53230/53230 ns`，且 `max_brightness` 由 4095 变
+  3326（`pwm-backlight` 的档位数 = `DIV_ROUND_UP(period, fls(period))`，上限 4096）。
 
 音频 / SoundWire / SLIMbus（0010–0013、0017、**0032–0033**）：
 
