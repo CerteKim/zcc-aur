@@ -1,0 +1,46 @@
+From ababfa71c42370fe8e7b6095ff91d52b291af552 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 00:43:36 +0800
+Subject: [PATCH] pinctrl: qcom: sc8180x: mark the broken PDC dual-edge errata
+
+sc8180x carries the same generation of PDC IP as sm8150, whose dual-edge
+support is broken/missing -- the feature only appeared in later PDC
+revisions, which is why sm8150, sdm845, sdm670, sc7180, sm7150, sm6350 and
+qcs615 all set .wakeirq_dual_edge_errata.  sc8180x does not, so it is the
+one PDC-based SoC that programs PDC_EDGE_DUAL.
+
+GPIOs in the PDC wakeirq map have their interrupt configured at the PDC and
+masked at the TLMM (IRQ_DOMAIN_FLAG_QCOM_PDC_WAKEUP), so
+msm_gpio_irq_set_type() only programs the parent and returns early.  With
+PDC_EDGE_DUAL the PDC then reports only one of the two edges.
+
+On the Xiaomi Book S 12.4 the lid switch is exactly such a GPIO (TLMM 121,
+PDC wakeirq 89, requested as IRQ_TYPE_EDGE_BOTH by gpio-keys): the falling
+"lid closed" edge was never delivered, so SW_LID never became 1, no input
+event was emitted and logind never saw the lid close -- the machine did not
+suspend and the screen stayed on.
+
+Measured on the board before the change: the pin toggled correctly between
+high and low with the cover, but /proc/interrupts only counted the rising
+edge, while EVIOCGSW kept reporting SW_LID=0 and logind never logged "Lid
+closed.".  With the flag set, both edges are reported and logind logs the
+close.
+
+Fixes: 97423113ec4b ("pinctrl: qcom: Add sc8180x TLMM driver")
+Cc: stable@vger.kernel.org
+---
+ drivers/pinctrl/qcom/pinctrl-sc8180x.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/pinctrl/qcom/pinctrl-sc8180x.c b/drivers/pinctrl/qcom/pinctrl-sc8180x.c
+index 062cb913e5ee..fef21b2db57c 100644
+--- a/drivers/pinctrl/qcom/pinctrl-sc8180x.c
++++ b/drivers/pinctrl/qcom/pinctrl-sc8180x.c
+@@ -1597,6 +1597,7 @@ static struct msm_pinctrl_soc_data sc8180x_pinctrl = {
+ 	.ngpios = 191,
+ 	.wakeirq_map = sc8180x_pdc_map,
+ 	.nwakeirq_map = ARRAY_SIZE(sc8180x_pdc_map),
++	.wakeirq_dual_edge_errata = true,
+ };
+ 
+ static const struct msm_pinctrl_soc_data sc8180x_acpi_pinctrl = {
