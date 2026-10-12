@@ -1,0 +1,159 @@
+From 3f9c1a7e5b2d4086af13c6e9d75b2084c1ea6f93 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:00:00 +0800
+Subject: [PATCH] remoteproc: qcom_q6v5: make the handover IRQ one-shot
+
+The SC8180X SLPI keeps re-asserting the handover line after the
+handover callback has already run, roughly every 200 ms.  The handler
+detects the duplicate signal but leaves the IRQ enabled, so every
+re-assertion is delivered again and the driver floods dmesg with
+
+  qcom_q6v5_pas 2400000.remoteproc: Handover signaled, but it already happened
+
+at ~5 Hz until the printk ring buffer holds nothing else.
+
+Mask the handover IRQ in the handler and unmask it again only from
+qcom_q6v5_prepare(), so a remote processor that repeats the signal
+cannot cause an interrupt storm.  Route enable/disable through
+state-tracking helpers to keep the enable count balanced, request the
+IRQ with IRQF_NO_AUTOEN and keep the handover_issued check so a stale
+signal delivered on the late-attach path is still ignored.
+
+The SLPI itself is otherwise healthy (the ready IRQ is not re-firing,
+there are no fatal/watchdog events and the glink/fastrpc channels stay
+up), so this is a log/IRQ storm fix, not a remoteproc recovery change.
+
+Backport of upstream bb7c5d6f5b41 ("remoteproc: qcom: q6v5: Make
+handover IRQ one-shot") plus its follow-up late-attach fix.
+
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+diff --git a/drivers/remoteproc/qcom_q6v5.c b/drivers/remoteproc/qcom_q6v5.c
+index 58d5b85..57a2ead 100644
+--- a/drivers/remoteproc/qcom_q6v5.c
++++ b/drivers/remoteproc/qcom_q6v5.c
+@@ -36,6 +36,40 @@ static int q6v5_load_state_toggle(struct qcom_q6v5 *q6v5, bool enable)
+ 	return ret;
+ }
+ 
++static void q6v5_handover_irq_enable(struct qcom_q6v5 *q6v5)
++{
++	unsigned long flags;
++	bool enable = false;
++
++	spin_lock_irqsave(&q6v5->handover_lock, flags);
++	if (!q6v5->handover_irq_enabled) {
++		q6v5->handover_irq_enabled = true;
++		enable = true;
++	}
++	spin_unlock_irqrestore(&q6v5->handover_lock, flags);
++
++	if (enable)
++		enable_irq(q6v5->handover_irq);
++}
++
++static void q6v5_handover_irq_disable(struct qcom_q6v5 *q6v5, bool sync)
++{
++	unsigned long flags;
++	bool disable = false;
++
++	spin_lock_irqsave(&q6v5->handover_lock, flags);
++	if (q6v5->handover_irq_enabled) {
++		q6v5->handover_irq_enabled = false;
++		disable = true;
++	}
++	spin_unlock_irqrestore(&q6v5->handover_lock, flags);
++
++	if (disable)
++		disable_irq_nosync(q6v5->handover_irq);
++	if (sync)
++		synchronize_irq(q6v5->handover_irq);
++}
++
+ /**
+  * qcom_q6v5_prepare() - reinitialize the qcom_q6v5 context before start
+  * @q6v5:	reference to qcom_q6v5 context to be reinitialized
+@@ -64,7 +98,7 @@ int qcom_q6v5_prepare(struct qcom_q6v5 *q6v5)
+ 	q6v5->running = true;
+ 	q6v5->handover_issued = false;
+ 
+-	enable_irq(q6v5->handover_irq);
++	q6v5_handover_irq_enable(q6v5);
+ 
+ 	return 0;
+ }
+@@ -78,7 +112,8 @@ EXPORT_SYMBOL_GPL(qcom_q6v5_prepare);
+  */
+ int qcom_q6v5_unprepare(struct qcom_q6v5 *q6v5)
+ {
+-	disable_irq(q6v5->handover_irq);
++	q6v5_handover_irq_disable(q6v5, true);
++
+ 	q6v5_load_state_toggle(q6v5, false);
+ 
+ 	/* Disable interconnect vote, in case handover never happened */
+@@ -164,6 +199,14 @@ static irqreturn_t q6v5_handover_interrupt(int irq, void *data)
+ {
+ 	struct qcom_q6v5 *q6v5 = data;
+ 
++	/*
++	 * The handover IRQ is one-shot per prepare cycle: mask it before doing
++	 * anything else, so a remote processor that keeps re-asserting the
++	 * handover line (the SC8180X SLPI does so every 200 ms) cannot turn
++	 * into an interrupt storm.
++	 */
++	q6v5_handover_irq_disable(q6v5, false);
++
+ 	if (q6v5->handover_issued) {
+ 		dev_err(q6v5->dev, "Handover signaled, but it already happened\n");
+ 		return IRQ_HANDLED;
+@@ -256,6 +299,8 @@ int qcom_q6v5_init(struct qcom_q6v5 *q6v5, struct platform_device *pdev,
+ 	q6v5->crash_reason = crash_reason;
+ 	q6v5->handover = handover;
+ 
++	spin_lock_init(&q6v5->handover_lock);
++
+ 	init_completion(&q6v5->start_done);
+ 	init_completion(&q6v5->stop_done);
+ 
+@@ -304,13 +349,13 @@ int qcom_q6v5_init(struct qcom_q6v5 *q6v5, struct platform_device *pdev,
+ 
+ 	ret = devm_request_threaded_irq(&pdev->dev, q6v5->handover_irq,
+ 					NULL, q6v5_handover_interrupt,
+-					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
++					IRQF_TRIGGER_RISING | IRQF_ONESHOT |
++					IRQF_NO_AUTOEN,
+ 					"q6v5 handover", q6v5);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "failed to acquire handover IRQ\n");
+ 		return ret;
+ 	}
+-	disable_irq(q6v5->handover_irq);
+ 
+ 	q6v5->stop_irq = platform_get_irq_byname(pdev, "stop-ack");
+ 	if (q6v5->stop_irq < 0)
+diff --git a/drivers/remoteproc/qcom_q6v5.h b/drivers/remoteproc/qcom_q6v5.h
+index 5a859c4..8991ff0 100644
+--- a/drivers/remoteproc/qcom_q6v5.h
++++ b/drivers/remoteproc/qcom_q6v5.h
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/completion.h>
++#include <linux/spinlock.h>
+ #include <linux/soc/qcom/qcom_aoss.h>
+ 
+ struct icc_path;
+@@ -29,6 +30,9 @@ struct qcom_q6v5 {
+ 	int handover_irq;
+ 	int stop_irq;
+ 
++	/* Protects handover_irq_enabled against stop/handover races. */
++	spinlock_t handover_lock;
++	bool handover_irq_enabled;
+ 	bool handover_issued;
+ 
+ 	struct completion start_done;
+-- 
+2.43.0
+
