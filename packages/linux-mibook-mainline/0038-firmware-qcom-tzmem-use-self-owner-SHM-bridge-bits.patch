@@ -1,0 +1,128 @@
+From 310ba891e5b91016cdb3b83c29ebcb9d815effa6 Mon Sep 17 00:00:00 2001
+From: Stephan Gerhold <stephan@gerhold.net>
+Date: Mon, 12 Oct 2026 17:53:21 +0800
+Subject: [PATCH] firmware: qcom: tzmem: use self-owner SHM bridge bits in EL2
+
+The SHM bridge needs a different set of bits (the "self owner" bits) when
+Linux is running as the hypervisor in EL2.  Make the SHM bridge (and SCM
+calls in general) work properly there, porting the equivalent change from
+the msm-5.4 vendor kernel:
+
+  git.codelinaro.org/clo/la/kernel/msm-5.4/-/commit/9cb1271ce620ab7cdd53f00c9d951004c9713254
+
+The VMID comes from a new "qcom,shm-bridge-vmid" property on the SCM node,
+defaulting to QCOM_SCM_VMID_HLOS so behaviour is unchanged when it is
+absent.  Asking for QCOM_SCM_VMID_SELF_OWNER also skips the "SHM bridge is
+broken here" blocklist: on those platforms the bridge is only broken when
+the allocation is attributed to HLOS, which is exactly what EL2 must not
+do.
+
+For this tree: sc8180x is in that blocklist ("hang in rmtfs memory
+assignment"), so the Xiaomi Book S 12.4 can only use the bridge at all in
+the self-owner form, via an EL2-specific device tree.
+
+Ported from the linux-gaokun EL2 patch set (0012 + 0013), by Stephan
+Gerhold <stephan@gerhold.net>.
+
+Signed-off-by: Stephan Gerhold <stephan@gerhold.net>
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ .../bindings/firmware/qcom,scm.yaml           |  8 +++++++
+ drivers/firmware/qcom/qcom_tzmem.c            | 24 +++++++++++++++----
+ include/dt-bindings/firmware/qcom,scm.h       |  3 +++
+ 3 files changed, 31 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/qcom,scm.yaml b/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
+index 25f62ba..55b4d56 100644
+--- a/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
++++ b/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
+@@ -113,6 +113,14 @@ properties:
+       Phandle to the memory region reserved for the shared memory bridge to TZ.
+     maxItems: 1
+ 
++  qcom,shm-bridge-vmid:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description:
++      VMID to use as owner of shared memory bridge allocations for TZ.
++      QCOM_SCM_VMID_SELF_OWNER may be used to indicate that the allocations
++      should be self-owned rather than being assigned to a specific VMID.
++      Defaults to QCOM_SCM_VMID_HLOS if not specified.
++
+   qcom,sdi-enabled:
+     description:
+       Indicates that the SDI (Secure Debug Image) has been enabled by TZ
+diff --git a/drivers/firmware/qcom/qcom_tzmem.c b/drivers/firmware/qcom/qcom_tzmem.c
+index 0635cbe..bc9e699 100644
+--- a/drivers/firmware/qcom/qcom_tzmem.c
++++ b/drivers/firmware/qcom/qcom_tzmem.c
+@@ -71,9 +71,12 @@ static void qcom_tzmem_cleanup_area(struct qcom_tzmem_area *area)
+ #include <linux/firmware/qcom/qcom_scm.h>
+ #include <linux/of.h>
+ 
++#define QCOM_SHM_BRIDGE_SELF_OWNER BIT(1)
++#define QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT 2
+ #define QCOM_SHM_BRIDGE_NUM_VM_SHIFT 9
+ 
+ static bool qcom_tzmem_using_shm_bridge;
++static u32 qcom_tzmem_vmid = QCOM_SCM_VMID_HLOS;
+ 
+ /* List of machines that are known to not support SHM bridge correctly. */
+ static const char *const qcom_tzmem_blacklist[] = {
+@@ -91,9 +94,15 @@ static int qcom_tzmem_init(void)
+ 	const char *const *platform;
+ 	int ret;
+ 
+-	for (platform = qcom_tzmem_blacklist; *platform; platform++) {
+-		if (of_machine_is_compatible(*platform))
+-			goto notsupp;
++	device_property_read_u32(qcom_tzmem_dev, "qcom,shm-bridge-vmid",
++				 &qcom_tzmem_vmid);
++
++	/* Skip blocklist if self owner is requested */
++	if (qcom_tzmem_vmid != QCOM_SCM_VMID_SELF_OWNER) {
++		for (platform = qcom_tzmem_blacklist; *platform; platform++) {
++			if (of_machine_is_compatible(*platform))
++				goto notsupp;
++		}
+ 	}
+ 
+ 	ret = qcom_scm_shm_bridge_enable(qcom_tzmem_dev);
+@@ -125,6 +134,7 @@ notsupp:
+ int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
+ {
+ 	u64 pfn_and_ns_perm, ipfn_and_s_perm, size_and_flags;
++	u64 ns_vmids = qcom_tzmem_vmid;
+ 	int ret;
+ 
+ 	if (!qcom_tzmem_using_shm_bridge)
+@@ -134,8 +144,14 @@ int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
+ 	ipfn_and_s_perm = paddr | QCOM_SCM_PERM_RW;
+ 	size_and_flags = size | (1 << QCOM_SHM_BRIDGE_NUM_VM_SHIFT);
+ 
++	if (qcom_tzmem_vmid == QCOM_SCM_VMID_SELF_OWNER) {
++		size_and_flags = size | QCOM_SHM_BRIDGE_SELF_OWNER |
++				 (QCOM_SCM_PERM_RW << QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT);
++		ns_vmids = 0;
++	}
++
+ 	ret = qcom_scm_shm_bridge_create(pfn_and_ns_perm, ipfn_and_s_perm,
+-					 size_and_flags, QCOM_SCM_VMID_HLOS,
++					 size_and_flags, ns_vmids,
+ 					 handle);
+ 	if (ret) {
+ 		dev_err(qcom_tzmem_dev,
+diff --git a/include/dt-bindings/firmware/qcom,scm.h b/include/dt-bindings/firmware/qcom,scm.h
+index 0d29d8d..776d2ca 100644
+--- a/include/dt-bindings/firmware/qcom,scm.h
++++ b/include/dt-bindings/firmware/qcom,scm.h
+@@ -37,4 +37,7 @@
+ #define QCOM_SCM_VMID_OEMVM		0x31
+ #define QCOM_SCM_VMID_CP_ADSP_SHARED	0x33
+ 
++/* Special value intended for qcom,shm-bridge-vmid */
++#define QCOM_SCM_VMID_SELF_OWNER	0xffffffff
++
+ #endif
+-- 
+2.56.0
+
