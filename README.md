@@ -385,3 +385,53 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 * **屏幕自动旋转还有一个 GNOME 侧的坑**：mutter 在登录时可能不去认领加速度计
   （mutter#4931），表现为 `HasAccelerometer=true` 但屏幕永不旋转。这属于用户会话
   配置，仓库不接管。
+
+---
+
+## 四、EL2（可选，进阶）
+
+默认情况下 Linux 跑在 EL1：这台机器的固件把 EL2 交给了高通的 hypervisor
+（QHEE）。用 [slbounce](https://github.com/TravMurav/slbounce) 走 Secure-Launch
+可以把 hypervisor 换成 Linux 自己跑在 EL2，代价是失去 hypervisor 提供的服务。
+
+**好处**：`/dev/kvm` 可用（`dmesg` 里有 `kvm [1]: VHE mode initialized successfully`），
+启动日志是 `CPU: All CPU(s) started at EL2`。
+
+**需要什么**
+
+1. 内核包里的 EL2 设备树（7.2-3 起由 `linux-mibook-mainline` 提供）：
+   `/boot/dtb/linux-mibook-mainline/qcom/sc8180x-xiaomi-book-12.4-el2.dtb`
+2. ESP 根目录放两样东西：
+   - `slbounce.efi`（从上游自行构建）
+   - `tcblaunch.exe`（微软签名的那个，从本机 Windows 安装里取；Secure-Launch 需要它）
+3. 满足上面两条时，`09_xiaomi_book_dtb` 会自动多生成一条
+   `Arch Linux (Xiaomi Book S 12.4, <kernel>, EL2 via slbounce)` 条目。
+   **默认启动项仍然是 EL1 那条**，EL2 只是菜单里多出来的一个选项。
+
+**怎么启动**
+
+```
+GRUB → EFI Shell → load slbounce.efi → exit → 选 "... EL2 via slbounce"
+```
+
+（EFI Shell 在 ESP 上，`shellaa64.efi`。不先 `load slbounce.efi` 而直接选那条，
+结果还是 EL1 —— 固件不会替我们切。）
+
+**EL2 下已知的差异与限制**
+
+| 子系统 | EL2 下 |
+|---|---|
+| KVM（VHE） | ✅ 可用，`/dev/kvm` 正常 |
+| 显示 / GPU / 面板 / 背光 | ✅ `msmdrmfb` + `adreno` + `panel-himax-hx83121a` 都正常 |
+| NVMe / eMMC / USB / 触摸板 / WiFi / 电池+充电 | ✅ |
+| 音频、真正的传感器 | ⛔ 需要 ADSP，EL2 下拿不到（要 `qcom_q6v5` attach 那套补丁） |
+| USB-C（pmic-glink）、LMH 热管理 | ⛔ 在 EL2 下无意义，EL2 设备树里已禁用 |
+| 音量键 | ⚠️ SPMI 的 APID 写权限归固件（`disallowed SPMI write`），不影响启动 |
+| eMMC 时钟源 | ⚠️ 一条 `clk-rcg2: rcg didn't update its configuration` WARN（eMMC 工作正常） |
+| EL2 虚拟定时器 | ⚠️ 设备树缺第 5 个中断（hyp-virt），KVM 仍可用，只是非最优 |
+
+**说明**：EL2 设备树（`sc8180x-el2.dtso`）只做 EL2 必需的改动（关掉 zap-shader、
+`qcom,shm-bridge-vmid` 用 self-owner、补齐 apps_smmu 的 context 中断表、禁用固件持有的
+ADSP/CDSP/SLPI 与 pmic-glink/LMH）。EL1 的设备树不受影响。
+
+**回退**：出问题就选 EL1 那条；两边可以随时来回切。

@@ -23,10 +23,19 @@
 # An entry is emitted for every kernel package listed in KERNELS that is present
 # in /boot together with its DTB: the first one is the default (GRUB_DEFAULT=0),
 # the rest remain as fallback entries.
+#
+# When the kernel package also ships the EL2 device tree (-el2.dtb) and the ESP
+# carries the Secure-Launch pieces (slbounce.efi plus a Microsoft-signed
+# tcblaunch.exe), one extra entry is emitted that boots the same kernel in EL2.
+# It is only useful after "load slbounce.efi" in the EFI shell (the firmware's
+# boot order normally goes straight to GRUB); everything else is identical, so
+# the entry simply does nothing if slbounce was not loaded.  See README section
+# on EL2 for what does and does not work there.
 
 set -e
 
 DTB_REL=qcom/sc8180x-xiaomi-book-12.4.dtb
+DTB_EL2_REL=qcom/sc8180x-xiaomi-book-12.4-el2.dtb
 KERNELS="linux-mibook-mainline linux-mibook"
 
 # Hardware options this port needs.  clk_ignore_unused/pd_ignore_unused keep
@@ -68,12 +77,27 @@ menuentry 'Arch Linux (Xiaomi Book S 12.4, $1, fallback initramfs)' --class arch
 EOF
 }
 
+emit_el2_entry() {
+    cat <<EOF
+menuentry 'Arch Linux (Xiaomi Book S 12.4, $1, EL2 via slbounce)' --class arch --class gnu-linux --class os {
+	linux	/vmlinuz-$1 $CMDLINE
+	devicetree /dtb/$1/$DTB_EL2_REL
+	initrd	/initramfs-$1.img
+}
+EOF
+}
+
 emitted=0
 for kernel in $KERNELS; do
     [ -f "/boot/vmlinuz-$kernel" ] || continue
     [ -f "/boot/dtb/$kernel/$DTB_REL" ] || continue
     emit_entries "$kernel"
     emitted=1
+    # EL2 variant: needs the kernel's EL2 device tree and the Secure-Launch files.
+    if [ -f "/boot/dtb/$kernel/$DTB_EL2_REL" ] && \
+       [ -f /boot/slbounce.efi ] && [ -f /boot/tcblaunch.exe ]; then
+        emit_el2_entry "$kernel"
+    fi
 done
 
 # /boot is normally mounted when grub-mkconfig runs.  If nothing matched, emit an
