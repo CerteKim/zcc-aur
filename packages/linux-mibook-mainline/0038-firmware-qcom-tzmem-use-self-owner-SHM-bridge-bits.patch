@@ -1,4 +1,4 @@
-From 310ba891e5b91016cdb3b83c29ebcb9d815effa6 Mon Sep 17 00:00:00 2001
+From f96c508b4b27ffd52e7978a1bb131546358057c1 Mon Sep 17 00:00:00 2001
 From: Stephan Gerhold <stephan@gerhold.net>
 Date: Mon, 12 Oct 2026 17:53:21 +0800
 Subject: [PATCH] firmware: qcom: tzmem: use self-owner SHM bridge bits in EL2
@@ -87,7 +87,7 @@ index 0635cbe..bc9e699 100644
  	}
  
  	ret = qcom_scm_shm_bridge_enable(qcom_tzmem_dev);
-@@ -125,6 +134,7 @@ notsupp:
+@@ -125,6 +134,7 @@ static int qcom_tzmem_init(void)
  int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
  {
  	u64 pfn_and_ns_perm, ipfn_and_s_perm, size_and_flags;
@@ -125,4 +125,3 @@ index 0d29d8d..776d2ca 100644
  #endif
 -- 
 2.56.0
-

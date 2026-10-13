@@ -1,7 +1,7 @@
-From c04562b0dcb4a42d8797b446f897df55920a990d Mon Sep 17 00:00:00 2001
+From 693473c8c9a34cc90bd30d2212c6f865d0c8dfe4 Mon Sep 17 00:00:00 2001
 From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
 Date: Tue, 13 Oct 2026 13:27:49 +0800
-Subject: [PATCH 2/2] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: add the EL2
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: add the EL2
  devicetree overlay
 
 Qualcomm's hypervisor owns EL2 on this machine, so Linux normally runs in
@@ -179,4 +179,3 @@ index 0000000..4bfea03
 +};
 -- 
 2.56.0
-
