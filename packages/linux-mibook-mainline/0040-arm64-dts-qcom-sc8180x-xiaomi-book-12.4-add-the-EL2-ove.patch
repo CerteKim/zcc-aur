@@ -1,0 +1,182 @@
+From c04562b0dcb4a42d8797b446f897df55920a990d Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 13:27:49 +0800
+Subject: [PATCH 2/2] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: add the EL2
+ devicetree overlay
+
+Qualcomm's hypervisor owns EL2 on this machine, so Linux normally runs in
+EL1.  Secure-Launch (slbounce) can replace the hypervisor with Linux running
+in EL2 -- losing its services, which makes a handful of device tree changes
+necessary.  Follow the upstream "EL2 overlays for WoA devices" series and
+express them as an overlay plus an -el2.dtb variant:
+
+  * the GPU zap shader cannot be authenticated, so the adreno driver has to
+    program RBBM_SECVID_TRUST_CNTL itself (and slbounce requires the node to
+    be disabled to switch at all);
+  * the SHM bridge to the secure world has to be self-owned in EL2;
+  * apps_smmu reports 127 context banks in EL2 while the dtsi describes 106
+    context interrupts -- without padding the list, arm-smmu fails its probe
+    and every device with an iommu reference defers forever;
+  * the ADSP/CDSP/SLPI, pmic-glink and LMH are firmware-owned and cannot be
+    driven from EL2; leaving them described makes remoteproc shut the DSPs
+    down, which resets the machine;
+  * the videocc has no user on this board (venus is disabled).
+
+Tested at EL2 on the Xiaomi Book S 12.4: EL2 with KVM (VHE), GNOME on the
+panel, GPU firmware loaded, NVMe and eMMC both usable.
+
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/qcom/Makefile         |   3 +-
+ arch/arm64/boot/dts/qcom/sc8180x-el2.dtso | 125 ++++++++++++++++++++++
+ 2 files changed, 127 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
+
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index f32e2f1..0ab70a4 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -287,7 +287,8 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
+-dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-xiaomi-book-12.4.dtb
++sc8180x-xiaomi-book-12.4-el2-dtbs := sc8180x-xiaomi-book-12.4.dtb sc8180x-el2.dtbo
++dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-xiaomi-book-12.4.dtb sc8180x-xiaomi-book-12.4-el2.dtb
+ sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
+ sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso b/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
+new file mode 100644
+index 0000000..4bfea03
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
+@@ -0,0 +1,125 @@
++// SPDX-License-Identifier: BSD-3-Clause
++#include <dt-bindings/firmware/qcom,scm.h>
++
++/*
++ * sc8180x specific modifications required to boot in EL2.
++ *
++ * This machine's firmware hands Linux over in EL1 because Qualcomm's
++ * hypervisor (QHEE) owns EL2.  slbounce[1] can replace it through
++ * Qualcomm's Secure-Launch flow, after which Linux runs in EL2 -- at the
++ * cost of the hypervisor's services, so a few things have to be done
++ * differently.  Everything below is only needed in EL2, which is why it
++ * lives in an overlay instead of the SoC dtsi.
++ *
++ *  - The GPU zap shader cannot be authenticated without the hypervisor.
++ *    Disabling the node makes the adreno driver program
++ *    RBBM_SECVID_TRUST_CNTL itself (dmesg: "Zap shader not enabled - using
++ *    SECVID_TRUST_CNTL instead"); keeping it disabled is also slbounce's
++ *    precondition for switching to EL2 in the first place.
++ *
++ *  - The videocc is only used by venus, which is disabled on this board.
++ *
++ *  - The SHM bridge to the secure world has to be self-owned in EL2.  On
++ *    sc8180x the bridge is blocklisted in EL1 ("hang in rmtfs memory
++ *    assignment", drivers/firmware/qcom/qcom_tzmem.c), which is why the
++ *    generic allocator is used there; QCOM_SCM_VMID_SELF_OWNER selects the
++ *    EL2-correct variant instead.
++ *
++ *  - apps_smmu reports 127 context banks in its IDR1 register in EL2, while
++ *    the device tree describes 106 context interrupts.  arm_smmu_device_probe()
++ *    rejects that mismatch with -ENODEV ("found only 106 context irq(s) but
++ *    127 required"), and every device with an iommus property then defers
++ *    forever -- storage, USB, display, everything.  In EL1 this never
++ *    surfaces because QHEE emulates the SMMU and reports only 106 banks.  The
++ *    list below appends 21 placeholders, taken from SPI numbers that no node
++ *    in this device tree uses, to satisfy the driver; they only affect fault
++ *    reporting for banks 107..126.  TODO: replace them with the real 21
++ *    interrupts once the vendor's IORT/ACPI data is available.
++ *
++ *  - The ADSP, CDSP and SLPI are started and owned by the firmware.  In EL2
++ *    Linux can neither authenticate their firmware (-EINVAL) nor reset them,
++ *    and the remoteproc driver shuts the subsystems down after the failed
++ *    start, which resets the machine.  Not describing them keeps the driver
++ *    away.  qcom_q6v5_attach()-style support (attaching to the already
++ *    running remoteprocs) is the long-term fix.
++ *
++ *  - pmic-glink needs the ADSP's rpmsg and LMH cannot set its thermal
++ *    thresholds from EL2; both only produce errors there.
++ *
++ * [1] https://github.com/TravMurav/slbounce
++ */
++
++/dts-v1/;
++/plugin/;
++
++&gpu_zap_shader {
++	status = "disabled";
++};
++
++&videocc {
++	status = "disabled";
++};
++
++&scm {
++	qcom,shm-bridge-vmid = <QCOM_SCM_VMID_SELF_OWNER>;
++};
++
++&apps_smmu {
++		interrupts = <
++				0x0 0x41 0x4 0x0 0x61 0x4 0x0 0x62 0x4 0x0 0x63 0x4
++				0x0 0x64 0x4 0x0 0x65 0x4 0x0 0x66 0x4 0x0 0x67 0x4
++				0x0 0x68 0x4 0x0 0x69 0x4 0x0 0x6a 0x4 0x0 0x6b 0x4
++				0x0 0x6c 0x4 0x0 0x6d 0x4 0x0 0x6e 0x4 0x0 0x6f 0x4
++				0x0 0x70 0x4 0x0 0x71 0x4 0x0 0x72 0x4 0x0 0x73 0x4
++				0x0 0x74 0x4 0x0 0x75 0x4 0x0 0x76 0x4 0x0 0xb5 0x4
++				0x0 0xb6 0x4 0x0 0xb7 0x4 0x0 0xb8 0x4 0x0 0xb9 0x4
++				0x0 0xba 0x4 0x0 0xbb 0x4 0x0 0xbc 0x4 0x0 0xbd 0x4
++				0x0 0xbe 0x4 0x0 0xbf 0x4 0x0 0xc0 0x4 0x0 0x13b 0x4
++				0x0 0x13c 0x4 0x0 0x13d 0x4 0x0 0x13e 0x4 0x0 0x13f 0x4
++				0x0 0x140 0x4 0x0 0x141 0x4 0x0 0x142 0x4 0x0 0x143 0x4
++				0x0 0x144 0x4 0x0 0x145 0x4 0x0 0x146 0x4 0x0 0x147 0x4
++				0x0 0x148 0x4 0x0 0x149 0x4 0x0 0x14a 0x4 0x0 0x14b 0x4
++				0x0 0x14c 0x4 0x0 0x14d 0x4 0x0 0x14e 0x4 0x0 0x14f 0x4
++				0x0 0x150 0x4 0x0 0x151 0x4 0x0 0x152 0x4 0x0 0x153 0x4
++				0x0 0x154 0x4 0x0 0x155 0x4 0x0 0x156 0x4 0x0 0x157 0x4
++				0x0 0x158 0x4 0x0 0x159 0x4 0x0 0x18b 0x4 0x0 0x18c 0x4
++				0x0 0x18d 0x4 0x0 0x18e 0x4 0x0 0x18f 0x4 0x0 0x190 0x4
++				0x0 0x191 0x4 0x0 0x192 0x4 0x0 0x193 0x4 0x0 0x194 0x4
++				0x0 0x195 0x4 0x0 0x196 0x4 0x0 0x197 0x4 0x0 0x198 0x4
++				0x0 0x199 0x4 0x0 0x19a 0x4 0x0 0x19b 0x4 0x0 0x19c 0x4
++				0x0 0x19d 0x4 0x0 0x2c2 0x4 0x0 0x2c3 0x4 0x0 0x2c4 0x4
++				0x0 0x2c5 0x4 0x0 0x2c6 0x4 0x0 0x2c7 0x4 0x0 0x2c8 0x4
++				0x0 0x2c9 0x4 0x0 0x2ca 0x4 0x0 0x2cb 0x4 0x0 0x283 0x4
++				0x0 0x282 0x4 0x0 0x281 0x4 0x0 0x280 0x4 0x0 0x300 0x4
++				0x0 0x301 0x4 0x0 0x302 0x4 0x0 0x303 0x4 0x0 0x304 0x4
++				0x0 0x305 0x4 0x0 0x306 0x4 0x0 0x307 0x4 0x0 0x1aa 0x4
++				0x0 0x1ab 0x4 0x0 0x1ac 0x4 0x0 0x1ad 0x4 0x0 0x1ae 0x4
++				0x0 0x1af 0x4 0x0 0x1b0 0x4 0x0 0x1b1 0x4 0x0 0x1b2 0x4
++				0x0 0x1b3 0x4 0x0 0x1b4 0x4 0x0 0x1b5 0x4 0x0 0x1b6 0x4
++				0x0 0x1b7 0x4 0x0 0x1b8 0x4 0x0 0x1b9 0x4 0x0 0x1ba 0x4
++				0x0 0x1bb 0x4 0x0 0x1bc 0x4 0x0 0x1bd 0x4 0x0 0x1be 0x4>;
++};
++
++&remoteproc_adsp {
++	status = "disabled";
++};
++
++&remoteproc_cdsp {
++	status = "disabled";
++};
++
++&remoteproc_slpi {
++	status = "disabled";
++};
++
++&{/pmic-glink} {
++	status = "disabled";
++};
++
++&{/soc@0/lmh@18350800} {
++	status = "disabled";
++};
++
++&{/soc@0/lmh@18358800} {
++	status = "disabled";
++};
+-- 
+2.56.0
+

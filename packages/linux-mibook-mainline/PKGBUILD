@@ -22,10 +22,11 @@
 
 pkgbase="linux-mibook-mainline"
 pkgver="7.2"
-pkgrel="2"
+pkgrel="3"
 
 _pkgdesc="Linux Xiaomi Book S 12.4 (mainline ${pkgver} + patch set)"
-_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb")
+_dtbs=("qcom/sc8180x-xiaomi-book-12.4.dtb"
+       "qcom/sc8180x-xiaomi-book-12.4-el2.dtb")
 
 arch=("aarch64")
 options=("!strip")
