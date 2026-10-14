@@ -407,7 +407,9 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
    - `qebspilaa64-stdpas.efi` + `/firmware/qcom/XIAOMI/BOOK124/` 下的 DSP 固件
      （可选但推荐：**没有它 EL2 下就没有音频**。它是 qebspil 的一个变体，用内核那套
      标准 `QCOM_SCM_SVC_PIL` 在 hypervisor 还在时把 ADSP 拉出复位，之后 Linux 用
-     `qcom,broken-reset` attach。源码与构建方式见 `el2-sc8180x/`）
+     `qcom,broken-reset` attach。源码：<https://github.com/CerteKim/qebspil-stdpas>
+     （fork 自 stephan-gh/qebspil），`git clone --recursive` 之后 `make SCM_BACKEND=std`，
+     产物就是 `out/qebspilaa64-stdpas.efi`）
 3. 满足上面两条时，`09_xiaomi_book_dtb` 会自动多生成一条
    `Arch Linux (Xiaomi Book S 12.4, <kernel>, EL2 via slbounce)` 条目。
    **默认启动项仍然是 EL1 那条**，EL2 只是菜单里多出来的一个选项。
