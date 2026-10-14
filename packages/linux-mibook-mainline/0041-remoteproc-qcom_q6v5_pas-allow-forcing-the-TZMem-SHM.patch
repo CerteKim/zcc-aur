@@ -1,0 +1,90 @@
+From b21e74165159319cc63fc30fbdc79edc89bcb77b Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 16:01:44 +0800
+Subject: [PATCH] remoteproc: qcom_q6v5_pas: allow forcing the TZMem SHM bridge
+
+The PAS calls that load the metadata blob and that authenticate the firmware
+memory region expect the firmware (hypervisor) to set up the SHM bridges on
+behalf of Linux.  When Linux runs in EL2 there is no hypervisor left, and on
+the Xiaomi Book S 12.4 (sc8180x) both calls then fail with -EINVAL:
+
+  qcom_q6v5_pas 17300000.remoteproc: error -22 initializing firmware qcom/XIAOMI/BOOK124/qcadsp8180.mbn
+  remoteproc remoteproc3: can't start rproc adsp: -22
+
+while the same firmware loads fine at EL1.  qcom_scm_pas_prepare_and_auth_reset()
+already implements the EL2 case (Linux creates the bridge itself), but
+qcom_q6v5_pas only selects it for remotes that have an "iommus" property, which
+it uses as the proxy for "Linux owns the memory protection".
+
+Add a "qcom,needs-tzmem" bool so a platform can ask for it explicitly, which is
+what an EL2 device tree overlay can do without inventing IOMMU stream IDs for a
+remote that is not behind the SMMU.  qcom_tzmem_shm_bridge_create() returns
+early when the SHM bridge is not in use, so the property is a no-op on EL1
+trees, and the SHM bridge itself is only ever created in the self-owned form
+(see "qcom,shm-bridge-vmid" and the tzmem EL2 change).
+
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ .../bindings/remoteproc/qcom,pas-common.yaml  |  8 ++++++++
+ drivers/remoteproc/qcom_q6v5_pas.c            | 19 +++++++++++++++++--
+ 2 files changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/remoteproc/qcom,pas-common.yaml b/Documentation/devicetree/bindings/remoteproc/qcom,pas-common.yaml
+index 4607b45..df85dd2 100644
+--- a/Documentation/devicetree/bindings/remoteproc/qcom,pas-common.yaml
++++ b/Documentation/devicetree/bindings/remoteproc/qcom,pas-common.yaml
+@@ -55,6 +55,14 @@ properties:
+     minItems: 1
+     maxItems: 3
+ 
++  qcom,needs-tzmem:
++    type: boolean
++    description:
++      The PAS metadata blob and the firmware memory region have to be bridged
++      to the secure world by Linux itself, because the firmware that normally
++      creates these SHM bridges on behalf of Linux is not present (for example
++      when Linux runs in EL2 instead of under a hypervisor).
++
+   qcom,smem-states:
+     $ref: /schemas/types.yaml#/definitions/phandle-array
+     description: States used by the AP to signal the Hexagon core
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index 57dd279..e058717 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -737,6 +737,7 @@ static int qcom_pas_probe(struct platform_device *pdev)
+ 	struct rproc *rproc;
+ 	const char *fw_name, *dtb_fw_name = NULL;
+ 	const struct rproc_ops *ops = &qcom_pas_ops;
++	bool needs_tzmem;
+ 	int ret;
+ 
+ 	desc = of_device_get_match_data(&pdev->dev);
+@@ -850,8 +851,22 @@ static int qcom_pas_probe(struct platform_device *pdev)
+ 		goto remove_ssr_sysmon;
+ 	}
+ 
+-	pas->pas_ctx->use_tzmem = rproc->has_iommu;
+-	pas->dtb_pas_ctx->use_tzmem = rproc->has_iommu;
++	/*
++	 * The PAS metadata blob and the firmware memory region have to be
++	 * bridged to the secure world.  Normally the firmware (hypervisor)
++	 * creates these SHM bridges on behalf of Linux, which is also why the
++	 * TZMem allocator must not be used in that case: passing a buffer that
++	 * is already part of an SHM bridge makes the PAS call fail.
++	 *
++	 * When Linux runs in EL2 there is no hypervisor left to do it, so the
++	 * bridges have to be created by Linux itself.  Platforms where this is
++	 * necessary (and where the SHM bridge is available) say so with
++	 * "qcom,needs-tzmem", usually from an EL2 device tree overlay.
++	 */
++	needs_tzmem = rproc->has_iommu ||
++		      device_property_read_bool(pas->dev, "qcom,needs-tzmem");
++	pas->pas_ctx->use_tzmem = needs_tzmem;
++	pas->dtb_pas_ctx->use_tzmem = needs_tzmem;
+ 	ret = rproc_add(rproc);
+ 	if (ret)
+ 		goto remove_ssr_sysmon;
+-- 
+2.56.0
+

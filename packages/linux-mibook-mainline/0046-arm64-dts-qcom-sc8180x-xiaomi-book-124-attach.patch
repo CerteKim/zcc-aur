@@ -1,0 +1,73 @@
+From 20766a34807e3438be6d9f3dc2016d49b2c37277 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 18:17:31 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8180x-xiaomi-book-12.4: attach to the
+ DSPs in EL2
+
+The ADSP, CDSP and SLPI are started and owned by the firmware. In EL2 the PAS
+reset sequence is not available, so Linux can authenticate a firmware image but
+the remoteproc never leaves reset:
+
+  qcom_q6v5_pas 17300000.remoteproc: start timed out
+  remoteproc remoteproc3: can't start rproc adsp: -110
+
+Describe that as "qcom,broken-reset" (plus "qcom,needs-tzmem" for the SHM
+bridge) and let the driver attach to whichever DSP the boot firmware left
+running, instead of describing them as disabled and not using them at all.
+
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/qcom/sc8180x-el2.dtso | 24 ++++++++++++++---------
+ 1 file changed, 15 insertions(+), 9 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso b/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
+index 4bfea03..3cf565e 100644
+--- a/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
++++ b/arch/arm64/boot/dts/qcom/sc8180x-el2.dtso
+@@ -36,12 +36,15 @@
+  *    reporting for banks 107..126.  TODO: replace them with the real 21
+  *    interrupts once the vendor's IORT/ACPI data is available.
+  *
+- *  - The ADSP, CDSP and SLPI are started and owned by the firmware.  In EL2
+- *    Linux can neither authenticate their firmware (-EINVAL) nor reset them,
+- *    and the remoteproc driver shuts the subsystems down after the failed
+- *    start, which resets the machine.  Not describing them keeps the driver
+- *    away.  qcom_q6v5_attach()-style support (attaching to the already
+- *    running remoteprocs) is the long-term fix.
++ *  - The ADSP, CDSP and SLPI are started and owned by the firmware, and in
++ *    EL2 the PAS reset sequence is not available: Linux can authenticate a
++ *    firmware image (with qcom,needs-tzmem) but the remoteproc never leaves
++ *    reset, so qcom_q6v5_wait_for_start() always times out with -ETIMEDOUT.
++ *    "qcom,broken-reset" tells the remoteproc driver not to try starting them
++ *    at all and to attach to whichever of them the boot firmware left
++ *    running instead.  On probe the driver prints the SMP2P line state of all
++ *    four interrupts per DSP, which is what tells us whether attaching is
++ *    possible on this machine.
+  *
+  *  - pmic-glink needs the ADSP's rpmsg and LMH cannot set its thermal
+  *    thresholds from EL2; both only produce errors there.
+@@ -101,15 +104,18 @@ &apps_smmu {
+ };
+ 
+ &remoteproc_adsp {
+-	status = "disabled";
++	qcom,broken-reset;
++	qcom,needs-tzmem;
+ };
+ 
+ &remoteproc_cdsp {
+-	status = "disabled";
++	qcom,broken-reset;
++	qcom,needs-tzmem;
+ };
+ 
+ &remoteproc_slpi {
+-	status = "disabled";
++	qcom,broken-reset;
++	qcom,needs-tzmem;
+ };
+ 
+ &{/pmic-glink} {
+-- 
+2.56.0
+

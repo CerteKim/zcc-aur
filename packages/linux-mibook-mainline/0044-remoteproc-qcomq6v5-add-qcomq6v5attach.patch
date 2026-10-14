@@ -1,0 +1,145 @@
+From 8b8fb6a16c56418c4cc322432978b55740d0cbb7 Mon Sep 17 00:00:00 2001
+From: Stephan Gerhold <stephan.gerhold@linaro.org>
+Date: Tue, 13 Oct 2026 18:17:30 +0800
+Subject: [PATCH] remoteproc: qcom_q6v5: add qcom_q6v5_attach()
+
+Implement qcom_q6v5_attach(), which can be used by q6v5 remoteproc drivers to
+attach to a remoteproc that is already running during boot. It shares the
+hardware setup with qcom_q6v5_prepare() but skips the proxy votes, since the
+boot firmware already released them when it handed the remoteproc over, and
+marks the handover as issued so that they are not released a second time.
+
+Also send the SMP2P stop signal when stopping a remoteproc that is in
+RPROC_ATTACHED/RPROC_DETACHED state: the check in qcom_q6v5_request_stop() only
+has to avoid duplicate shutdown signals during a crash or a sysmon shutdown,
+which is expressed by checking for RPROC_CRASHED. Local adaptation for our 7.2
+tree, which since patch 0037 masks the handover IRQ in the handler: keep using
+q6v5_handover_irq_enable() so the enable count stays balanced.
+
+Signed-off-by: Stephan Gerhold <stephan.gerhold@linaro.org>
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ drivers/remoteproc/qcom_q6v5.c | 70 +++++++++++++++++++++++++++++-----
+ drivers/remoteproc/qcom_q6v5.h |  1 +
+ 2 files changed, 62 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/remoteproc/qcom_q6v5.c b/drivers/remoteproc/qcom_q6v5.c
+index f4b4e6b..7a90e3d 100644
+--- a/drivers/remoteproc/qcom_q6v5.c
++++ b/drivers/remoteproc/qcom_q6v5.c
+@@ -70,6 +70,34 @@ static void q6v5_handover_irq_disable(struct qcom_q6v5 *q6v5, bool sync)
+ 		synchronize_irq(q6v5->handover_irq);
+ }
+ 
++/**
++ * q6v5_init() - common initializer for starting or attaching to the remoteproc
++ * @q6v5:		reference to qcom_q6v5 context
++ * @handover_issued:	whether the proxy resources have already been released
++ *			by the boot firmware (i.e. handover already happened)
++ *
++ * Return: 0 on success, negative errno on failure
++ */
++static int q6v5_init(struct qcom_q6v5 *q6v5, bool handover_issued)
++{
++	int ret;
++
++	/* Always send correct load state in case it was not done before */
++	ret = q6v5_load_state_toggle(q6v5, true);
++	if (ret)
++		return ret;
++
++	reinit_completion(&q6v5->start_done);
++	reinit_completion(&q6v5->stop_done);
++
++	q6v5->running = true;
++	q6v5->handover_issued = handover_issued;
++
++	q6v5_handover_irq_enable(q6v5);
++
++	return 0;
++}
++
+ /**
+  * qcom_q6v5_prepare() - reinitialize the qcom_q6v5 context before start
+  * @q6v5:	reference to qcom_q6v5 context to be reinitialized
+@@ -86,23 +114,41 @@ int qcom_q6v5_prepare(struct qcom_q6v5 *q6v5)
+ 		return ret;
+ 	}
+ 
+-	ret = q6v5_load_state_toggle(q6v5, true);
++	ret = q6v5_init(q6v5, false);
+ 	if (ret) {
+ 		icc_set_bw(q6v5->path, 0, 0);
+ 		return ret;
+ 	}
+ 
+-	reinit_completion(&q6v5->start_done);
+-	reinit_completion(&q6v5->stop_done);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(qcom_q6v5_prepare);
+ 
+-	q6v5->running = true;
+-	q6v5->handover_issued = false;
++/**
++ * qcom_q6v5_attach() - attach to an already running qcom_q6v5 remoteproc
++ * @q6v5:	reference to qcom_q6v5 context to be attached
++ *
++ * This is qcom_q6v5_prepare() without the proxy votes: the remoteproc was
++ * already started by the boot firmware and has already gone through the
++ * handover, so the interconnect and proxy power domain votes were released
++ * then and must not be re-requested from here.
++ *
++ * Return: 0 on success, negative errno on failure
++ */
++int qcom_q6v5_attach(struct qcom_q6v5 *q6v5)
++{
++	int ret;
+ 
+-	q6v5_handover_irq_enable(q6v5);
++	ret = q6v5_init(q6v5, true);
++	if (ret)
++		return ret;
++
++	/* The remote processor is already running, it will never signal ready */
++	complete(&q6v5->start_done);
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL_GPL(qcom_q6v5_prepare);
++EXPORT_SYMBOL_GPL(qcom_q6v5_attach);
+ 
+ /**
+  * qcom_q6v5_unprepare() - unprepare the qcom_q6v5 context after stop
+@@ -244,8 +290,14 @@ int qcom_q6v5_request_stop(struct qcom_q6v5 *q6v5, struct qcom_sysmon *sysmon)
+ 
+ 	q6v5->running = false;
+ 
+-	/* Don't perform SMP2P dance if remote isn't running */
+-	if (q6v5->rproc->state != RPROC_RUNNING || qcom_sysmon_shutdown_acked(sysmon))
++	/*
++	 * Don't perform the SMP2P dance if the remote processor already
++	 * crashed, or if it was shut down through sysmon already. This also
++	 * covers RPROC_ATTACHED/RPROC_DETACHED, where the remoteproc was
++	 * started by the boot firmware and still has to be stopped cleanly
++	 * through the stop bit.
++	 */
++	if (q6v5->rproc->state == RPROC_CRASHED || qcom_sysmon_shutdown_acked(sysmon))
+ 		return 0;
+ 
+ 	qcom_smem_state_update_bits(q6v5->state,
+diff --git a/drivers/remoteproc/qcom_q6v5.h b/drivers/remoteproc/qcom_q6v5.h
+index 6a2aa6c..1b48f8d 100644
+--- a/drivers/remoteproc/qcom_q6v5.h
++++ b/drivers/remoteproc/qcom_q6v5.h
+@@ -54,6 +54,7 @@ void qcom_q6v5_deinit(struct qcom_q6v5 *q6v5);
+ int qcom_q6v5_read_smp2p_state(struct qcom_q6v5 *q6v5);
+ 
+ int qcom_q6v5_prepare(struct qcom_q6v5 *q6v5);
++int qcom_q6v5_attach(struct qcom_q6v5 *q6v5);
+ int qcom_q6v5_unprepare(struct qcom_q6v5 *q6v5);
+ int qcom_q6v5_request_stop(struct qcom_q6v5 *q6v5, struct qcom_sysmon *sysmon);
+ int qcom_q6v5_wait_for_start(struct qcom_q6v5 *q6v5, int timeout);
+-- 
+2.56.0
+

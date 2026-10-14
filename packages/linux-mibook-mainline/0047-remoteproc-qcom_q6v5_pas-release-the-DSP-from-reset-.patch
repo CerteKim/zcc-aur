@@ -1,0 +1,150 @@
+From 1fb78114124842fc9a801b7827d4855ca72ef9d2 Mon Sep 17 00:00:00 2001
+From: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 23:09:16 +0800
+Subject: [PATCH] remoteproc: qcom_q6v5_pas: release the DSP from reset through
+ QDSP6SS
+
+At EL2 there is no hypervisor left to execute the reset half of the PAS
+sequence: authentication succeeds and every qcom_scm_pas_* call returns
+success, but the DSP never leaves reset, so qcom_q6v5_wait_for_start()
+reports "start timed out". Add a way to do that part ourselves, reusing the
+register sequence that qcom_q6v5_adsp.c uses for the SoCs whose ADSP is not
+PAS based: enable the QDSP6SS XO/sleep/core branch clocks, program RST_EVB
+with the firmware base address, set CORE_START and BOOT_CMD, then poll
+BOOT_STATUS.
+
+The SC8180X LPASS ADSP exposes exactly that block (reg = <0x17300000
+0x4040>), so nothing new has to be mapped -- the device tree already
+describes it, the PAS driver just never touched it.
+
+"qcom,qdsp6ss-start" selects the behaviour and is only set from the EL2
+device tree overlay, so an EL1 boot is unaffected. At probe the register
+block is read and printed before anything is written, which shows whether the
+XPU allows the access at all.
+
+Signed-off-by: Certe Kim <18364439+CerteKim@users.noreply.github.com>
+---
+ drivers/remoteproc/qcom_q6v5_pas.c | 79 ++++++++++++++++++++++++++++++
+ 1 file changed, 79 insertions(+)
+
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index 0c0c518..780988a 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -12,6 +12,7 @@
+ #include <linux/firmware.h>
+ #include <linux/interrupt.h>
+ #include <linux/iommu.h>
++#include <linux/iopoll.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+@@ -32,6 +33,18 @@
+ #include "qcom_q6v5.h"
+ #include "remoteproc_internal.h"
+ 
++/* LPASS QDSP6SS register offsets, same block as qcom_q6v5_adsp.c */
++#define QDSP6SS_RST_EVB_REG		0x10
++#define QDSP6SS_CORE_CBCR		0x20
++#define QDSP6SS_XO_CBCR			0x38
++#define QDSP6SS_SLEEP_CBCR		0x3c
++#define QDSP6SS_CORE_START_REG		0x400
++#define QDSP6SS_BOOT_CMD_REG		0x404
++#define QDSP6SS_BOOT_STATUS_REG		0x408
++
++#define LPASS_BOOT_CORE_START		BIT(0)
++#define LPASS_BOOT_CMD_START		BIT(0)
++
+ #define QCOM_PAS_DECRYPT_SHUTDOWN_DELAY_MS	100
+ 
+ #define MAX_ASSIGN_COUNT 3
+@@ -68,6 +81,15 @@ struct qcom_pas {
+ 
+ 	struct qcom_q6v5 q6v5;
+ 
++	/*
++	 * LPASS QDSP6SS registers, used to release the remoteproc from reset
++	 * ourselves when the hypervisor that normally does it is gone (EL2).
++	 * Offsets match drivers/remoteproc/qcom_q6v5_adsp.c; the sc8180x ADSP
++	 * node maps exactly that register block.
++	 */
++	void __iomem *qdsp6ss_base;
++	bool qdsp6ss_start;
++
+ 	struct clk *xo;
+ 	struct clk *aggre2_clk;
+ 
+@@ -336,6 +358,32 @@ static int qcom_pas_start(struct rproc *rproc)
+ 		goto unmap_carveout;
+ 	}
+ 
++	if (pas->qdsp6ss_start) {
++		u32 val;
++
++		/*
++		 * Authentication is done, but nobody released the DSP from
++		 * reset: the hypervisor that does that in EL1 is gone. Do it
++		 * through the QDSP6SS block instead.
++		 */
++		writel(1, pas->qdsp6ss_base + QDSP6SS_XO_CBCR);
++		writel(1, pas->qdsp6ss_base + QDSP6SS_SLEEP_CBCR);
++		writel(1, pas->qdsp6ss_base + QDSP6SS_CORE_CBCR);
++
++		writel(pas->mem_phys >> 4, pas->qdsp6ss_base + QDSP6SS_RST_EVB_REG);
++		writel(LPASS_BOOT_CORE_START, pas->qdsp6ss_base + QDSP6SS_CORE_START_REG);
++		writel(LPASS_BOOT_CMD_START, pas->qdsp6ss_base + QDSP6SS_BOOT_CMD_REG);
++
++		ret = readl_poll_timeout(pas->qdsp6ss_base + QDSP6SS_BOOT_STATUS_REG,
++					 val, val & BIT(0), 10, 10000);
++		dev_info(pas->dev,
++			 "QDSP6SS: RST_EVB=0x%08x BOOT_STATUS=0x%08x (%s), CORE_CBCR=0x%08x\n",
++			 readl(pas->qdsp6ss_base + QDSP6SS_RST_EVB_REG),
++			 readl(pas->qdsp6ss_base + QDSP6SS_BOOT_STATUS_REG),
++			 ret ? "boot FSM timeout" : "core running",
++			 readl(pas->qdsp6ss_base + QDSP6SS_CORE_CBCR));
++	}
++
+ 	ret = qcom_q6v5_wait_for_start(&pas->q6v5, msecs_to_jiffies(5000));
+ 	if (ret == -ETIMEDOUT) {
+ 		dev_err(pas->dev, "start timed out\n");
+@@ -852,6 +900,37 @@ static int qcom_pas_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto free_rproc;
+ 
++	/*
++	 * With the hypervisor replaced (slbounce / EL2) the PAS calls only
++	 * authenticate the firmware; releasing the DSP from reset is part of
++	 * the hypervisor's job and it is gone. "qcom,qdsp6ss-start" (set only
++	 * from the EL2 overlay) makes us do that part ourselves, the way
++	 * qcom_q6v5_adsp.c does it for the SoCs whose ADSP is not PAS based.
++	 *
++	 * The register block is dumped first: if the XPU does not allow the
++	 * access this is where it shows up, before anything is written.
++	 */
++	if (of_property_read_bool(pdev->dev.of_node, "qcom,qdsp6ss-start")) {
++		pas->qdsp6ss_base = devm_platform_ioremap_resource(pdev, 0);
++		if (IS_ERR(pas->qdsp6ss_base)) {
++			ret = PTR_ERR(pas->qdsp6ss_base);
++			dev_err(&pdev->dev, "failed to map the QDSP6SS registers: %d\n", ret);
++			goto unassign_mem;
++		}
++
++		pas->qdsp6ss_start = true;
++		dev_info(&pdev->dev,
++			 "QDSP6SS: RST_EVB=0x%08x CORE_CBCR=0x%08x XO_CBCR=0x%08x SLEEP_CBCR=0x%08x CORE_START=0x%08x BOOT_CMD=0x%08x BOOT_STATUS=0x%08x (mem 0x%pa+0x%zx)\n",
++			 readl(pas->qdsp6ss_base + QDSP6SS_RST_EVB_REG),
++			 readl(pas->qdsp6ss_base + QDSP6SS_CORE_CBCR),
++			 readl(pas->qdsp6ss_base + QDSP6SS_XO_CBCR),
++			 readl(pas->qdsp6ss_base + QDSP6SS_SLEEP_CBCR),
++			 readl(pas->qdsp6ss_base + QDSP6SS_CORE_START_REG),
++			 readl(pas->qdsp6ss_base + QDSP6SS_BOOT_CMD_REG),
++			 readl(pas->qdsp6ss_base + QDSP6SS_BOOT_STATUS_REG),
++			 &pas->mem_phys, pas->mem_size);
++	}
++
+ 	ret = qcom_pas_init_clock(pas);
+ 	if (ret)
+ 		goto unassign_mem;
+-- 
+2.43.0
+
