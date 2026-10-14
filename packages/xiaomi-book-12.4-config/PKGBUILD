@@ -17,6 +17,10 @@
 #     that mutes the digitizer's pen collection while the pen sits on its magnetic
 #     dock.  Without the gate the docked pen is reported as "hovering" at the dock
 #     position and mutter warps the cursor there (left edge, above centre)
+#   * a systemd drop-in that keeps the APSS (KPSS) watchdog fed.  The bootloader
+#     arms it and Qualcomm's hypervisor feeds it while Linux runs in EL1; with
+#     Secure-Launch (slbounce) Linux runs in EL2 instead and, without this, the
+#     machine resets itself silently ~56 s into the boot.
 #
 # It used to carry prebuilt panel device trees; those were bring-up snapshots and
 # are superseded by the kernel source.  See the config package's history.
@@ -28,7 +32,7 @@
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=11
+pkgrel=12
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, cover-internal udev rule, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
@@ -54,6 +58,7 @@ source=(
     'ra9530-pen-battery.sh'
     'ucm-HiFi.conf'
     'ucm-TIMI-XiaomiBook12.4-INVALID-TM2133.conf'
+    '99-qcom-watchdog.conf'
 )
 sha256sums=(
     'ac749d7117accb0a8032cbdb331d3dee2f774a98cf502365ab86c514cceadf0a'
@@ -68,6 +73,7 @@ sha256sums=(
     '3bece361b2b0b62772d7eb3768c0cbe37372a2fd20498559dfcfc31079fd160b'
     '60228fe7ea4971b75c130987ae430f33b6a54c61cde25186a77b7bad124862f3'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
+    '769dd32c2c7af874907adc3481973f927f43dd6e71d1802f5c9238e2c4108865'
 )
 
 package() {
@@ -102,4 +108,11 @@ package() {
     install -Dm755 ra9530-pen-battery.sh    "$pkgdir/usr/local/bin/ra9530-pen-battery.sh"
     install -Dm644 ra9530-charge-policy.service \
         "$pkgdir/usr/lib/systemd/system/ra9530-charge-policy.service"
+
+    # systemd must feed the APSS watchdog when Linux runs in EL2 (Secure-Launch
+    # / slbounce): QHEE, which does it in EL1, is gone there and the kernel's
+    # boot-enabled ping only covers the window until userspace opens the device.
+    # Without this the machine resets itself ~56 s into an EL2 boot.
+    install -Dm644 99-qcom-watchdog.conf \
+        "$pkgdir/usr/lib/systemd/system.conf.d/99-qcom-watchdog.conf"
 }

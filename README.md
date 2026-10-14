@@ -401,9 +401,13 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 
 1. 内核包里的 EL2 设备树（7.2-3 起由 `linux-mibook-mainline` 提供）：
    `/boot/dtb/linux-mibook-mainline/qcom/sc8180x-xiaomi-book-12.4-el2.dtb`
-2. ESP 根目录放两样东西：
+2. ESP 根目录放三样东西：
    - `slbounce.efi`（从上游自行构建）
    - `tcblaunch.exe`（微软签名的那个，从本机 Windows 安装里取；Secure-Launch 需要它）
+   - `qebspilaa64-stdpas.efi` + `/firmware/qcom/XIAOMI/BOOK124/` 下的 DSP 固件
+     （可选但推荐：**没有它 EL2 下就没有音频**。它是 qebspil 的一个变体，用内核那套
+     标准 `QCOM_SCM_SVC_PIL` 在 hypervisor 还在时把 ADSP 拉出复位，之后 Linux 用
+     `qcom,broken-reset` attach。源码与构建方式见 `el2-sc8180x/`）
 3. 满足上面两条时，`09_xiaomi_book_dtb` 会自动多生成一条
    `Arch Linux (Xiaomi Book S 12.4, <kernel>, EL2 via slbounce)` 条目。
    **默认启动项仍然是 EL1 那条**，EL2 只是菜单里多出来的一个选项。
@@ -411,11 +415,13 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
 **怎么启动**
 
 ```
-GRUB → EFI Shell → load slbounce.efi → exit → 选 "... EL2 via slbounce"
+GRUB → EFI Shell → load qebspilaa64-stdpas.efi   ← 想要音频就加这一步
+                 → load slbounce.efi → exit → 选 "... EL2 via slbounce"
 ```
 
 （EFI Shell 在 ESP 上，`shellaa64.efi`。不先 `load slbounce.efi` 而直接选那条，
-结果还是 EL1 —— 固件不会替我们切。）
+结果还是 EL1 —— 固件不会替我们切。qebspil 的顺序必须在 slbounce **之前**：它的
+EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在真 EBS 返回之后才做的。）
 
 **EL2 下已知的差异与限制**
 
@@ -424,7 +430,9 @@ GRUB → EFI Shell → load slbounce.efi → exit → 选 "... EL2 via slbounce"
 | KVM（VHE） | ✅ 可用，`/dev/kvm` 正常 |
 | 显示 / GPU / 面板 / 背光 | ✅ `msmdrmfb` + `adreno` + `panel-himax-hx83121a` 都正常 |
 | NVMe / eMMC / USB / 触摸板 / WiFi / 电池+充电 | ✅ |
-| 音频、真正的传感器 | ⛔ 需要 ADSP，EL2 下拿不到（要 `qcom_q6v5` attach 那套补丁） |
+| 音频（ADSP） | ✅ 前提是先 `load qebspilaa64-stdpas.efi`（内核侧 attach 补丁已随内核包提供） |
+| 看门狗 | ⚠️ 必须让 systemd 喂它（本包提供的 `99-qcom-watchdog.conf`，`RuntimeWatchdogSec=30s`）。EL1 下是 QHEE 在喂；EL2 下没人喂就会**开机约 56 秒后静默复位**（无 panic、无关机日志） |
+| 传感器（SLPI） | ⛔ SLPI 没有固件预启动，且它同样需要 hypervisor；EL2 下不可用 |
 | USB-C（pmic-glink）、LMH 热管理 | ⛔ 在 EL2 下无意义，EL2 设备树里已禁用 |
 | 音量键 | ⚠️ SPMI 的 APID 写权限归固件（`disallowed SPMI write`），不影响启动 |
 | eMMC 时钟源 | ⚠️ 一条 `clk-rcg2: rcg didn't update its configuration` WARN（eMMC 工作正常） |
