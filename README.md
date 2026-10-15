@@ -410,6 +410,9 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
      `qcom,broken-reset` attach。源码：<https://github.com/CerteKim/qebspil-stdpas>
      （fork 自 stephan-gh/qebspil），`git clone --recursive` 之后 `make SCM_BACKEND=std`，
      产物就是 `out/qebspilaa64-stdpas.efi`）
+     **fork 里的 `QEBSPIL_SETTLE_MS`（默认 5000）不能去掉**：`exit` 之后 slbounce 会立刻做
+     Secure Launch，而 DSP 刚放出复位、handover 还没做完 —— 不等就会变成"同一份 dtb 有时能
+     attach、有时 `SMP2P … -19`"（设 0 即退回旧行为，`make … QEBSPIL_SETTLE_MS=2000` 可调小）。
 3. 满足上面两条时，`09_xiaomi_book_dtb` 会自动多生成一条
    `Arch Linux (Xiaomi Book S 12.4, <kernel>, EL2 via slbounce)` 条目。
    **默认启动项仍然是 EL1 那条**，EL2 只是菜单里多出来的一个选项。
@@ -423,7 +426,7 @@ GRUB → EFI Shell → load qebspilaa64-stdpas.efi   ← 想要音频就加这�
 
 （EFI Shell 在 ESP 上，`shellaa64.efi`。不先 `load slbounce.efi` 而直接选那条，
 结果还是 EL1 —— 固件不会替我们切。qebspil 的顺序必须在 slbounce **之前**：它的
-EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在真 EBS 返回之后才做的。）
+EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在真 EBS 返回之后才做的。`exit` 之后会在 EFI shell **停约 5 秒**：那是 qebspil 在等 DSP 完成 handover，不是死机。）
 
 **EL2 下已知的差异与限制**
 
@@ -434,11 +437,16 @@ EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在�
 | NVMe / eMMC / USB / 触摸板 / WiFi / 电池+充电 | ✅ |
 | 音频（ADSP） | ✅ 前提是先 `load qebspilaa64-stdpas.efi`（内核侧 attach 补丁已随内核包提供） |
 | 看门狗 | ⚠️ 必须让 systemd 喂它（本包提供的 `99-qcom-watchdog.conf`，`RuntimeWatchdogSec=30s`）。EL1 下是 QHEE 在喂；EL2 下没人喂就会**开机约 56 秒后静默复位**（无 panic、无关机日志） |
-| 传感器（SLPI） | ⛔ SLPI 没有固件预启动，且它同样需要 hypervisor；EL2 下不可用 |
+| 传感器（SLPI） | ⛔ 它的电源域是 LCX+LMX，而 EFI 阶段没人能投 RPMh（qebspil 没有 RPMh 驱动），内核在 EL2 又启动不了它（PAS 只认证不放复位、QDSP6SS 寄存器碰不得）→ **EL2 下无解** |
+| CDSP | ✅ 同音频：靠 `qebspilaa64-stdpas.efi` 在切换前启动，内核 attach |
 | USB-C（pmic-glink）、LMH 热管理 | ⛔ 在 EL2 下无意义，EL2 设备树里已禁用 |
 | 音量键 | ⚠️ SPMI 的 APID 写权限归固件（`disallowed SPMI write`），不影响启动 |
 | eMMC 时钟源 | ⚠️ 一条 `clk-rcg2: rcg didn't update its configuration` WARN（eMMC 工作正常） |
 | EL2 虚拟定时器 | ⚠️ 设备树缺第 5 个中断（hyp-virt），KVM 仍可用，只是非最优 |
+
+**为什么 DSP 必须"切换前"启动**：EL2 下 `PAS_AUTH_AND_RESET` 会返回成功却**不放复位**，而
+QDSP6SS 寄存器窗口被 XPU 挡住、**一读就卡死整机**（会僵到看门狗复位）。modem 是例外：内核
+能自己在 EL2 启动它（TZ 的 PAS 对 MSS 有效）。
 
 **说明**：EL2 设备树（`sc8180x-el2.dtso`）只做 EL2 必需的改动（关掉 zap-shader、
 `qcom,shm-bridge-vmid` 用 self-owner、补齐 apps_smmu 的 context 中断表、禁用固件持有的
