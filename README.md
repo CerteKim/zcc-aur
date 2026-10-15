@@ -228,7 +228,7 @@ udevadm info /sys/class/input/event4 | grep INTEGRATION   # 应为 internal
 
 | 包 | 内容 |
 |---|---|
-| **`linux-mibook-mainline`** | 内核（含 `linux-mibook-mainline-headers`）：`cdn.kernel.org` 的 `linux-7.2.tar.xz` + 本目录里 36 个补丁文件（`git format-patch` 的产物）。不带 linux-surface 栈、不带 parked 的 IRIS/VPU 代码。 |
+| **`linux-mibook-mainline`** | 内核（含 `linux-mibook-mainline-headers`）：`cdn.kernel.org` 的 `linux-7.2.tar.xz` + 本目录里 48 个补丁文件（`git format-patch` 的产物）。不带 linux-surface 栈、不带 parked 的 IRIS/VPU 代码。 |
 | **`ra9530-dkms`** | RA9530 磁吸笔充电器驱动（DKMS，`arch=any`）。装完由 DKMS 为当前内核构建；只装驱动源码，**不改动 `/boot`** —— 设备树节点由内核包的 DTS 提供。 |
 | **`panel-himax-hx83121a-dkms`** | Himax HX83121A 面板驱动（DKMS，`arch=any`）。**可选**：内核包自带的那份仍会装上并生效，装本包只是为了改 DSC/时序**不用重编内核**。 |
 | **`xiaomi-book-12.4-firmware`** | 厂商固件：ADSP / CDSP / SLPI / MPSS(no-modem) / GPU-zap / WLAN / venus / Adreno 680，外加 `*.jsn` 加载器元数据；**以及把固件放进 initramfs 的 mkinitcpio hook**。这些固件**不在 `linux-firmware` 里**，是从本机 Windows 分区提取的。 |
@@ -449,7 +449,7 @@ QDSP6SS 寄存器窗口被 XPU 挡住、**一读就卡死整机**（会僵到看
 能自己在 EL2 启动它（TZ 的 PAS 对 MSS 有效）。
 
 **说明**：EL2 设备树（`sc8180x-el2.dtso`）只做 EL2 必需的改动（关掉 zap-shader、
-`qcom,shm-bridge-vmid` 用 self-owner、补齐 apps_smmu 的 context 中断表、禁用固件持有的
+`qcom,shm-bridge-vmid` 用 self-owner、禁用固件持有的
 ADSP/CDSP/SLPI 与 pmic-glink/LMH）。EL1 的设备树不受影响。
 
 **回退**：出问题就选 EL1 那条；两边可以随时来回切。

@@ -42,7 +42,7 @@ packages/<pkgname>/       每个包一个目录，makepkg 在这里跑
   PKGBUILD
   *.patch                 iio-sensor-proxy-ssc / rmtfs / linux-mibook-mainline
   *.install               pacman 钩子（提示、DKMS 重建、disable 单元）
-  0001..0036-*.patch      linux-mibook-mainline 的补丁集（平铺）
+  0001..0048-*.patch      linux-mibook-mainline 的补丁集（平铺）
   base.config             linux-mibook-mainline：ALARM bring-up 配置
   xiaomi-only.config      在其上的精简片段（含两个不能删的选项，见 §5）
 scripts/
@@ -100,7 +100,7 @@ Windows 安装的厂商数据，**不进 git，仓库里也没有采集脚本**�
 
 ## 5. 内核包（`linux-mibook-mainline`）
 
-* 源是 `cdn.kernel.org` 的 `linux-7.2.tar.xz`，delta 是平铺的 36 个补丁，
+* 源是 `cdn.kernel.org` 的 `linux-7.2.tar.xz`，delta 是平铺的 48 个补丁，
   它们是分支 `xiaomi-mainline-7.2`（基线 `upstream-v7.2`）的 `git format-patch` 导出。
 * `arch=("aarch64")`，`options=("!strip")`，`makedepends` 见 PKGBUILD。
 * 安装布局（`/boot` 下都是自己的名字，可与别的内核并存）：
@@ -145,6 +145,7 @@ Windows 安装的厂商数据，**不进 git，仓库里也没有采集脚本**�
 | 0034 | 背光 PWM 频率对齐原厂（19200 Hz / 9-bit）。`pwm-qcom-lpg` 会把周期量化到 `resolution × pre_div × 2^M / refclk` 的格点，原厂值**精确不可达**；取 `53230 ns` 得 18786 Hz（低 2.2%）。**陷阱**：填原厂的 `52083 ns` 会掉到 6-bit 分辨率、落到 `52500 ns`，频率只近 1.4% 但占空从 511 级掉到 63 级 —— 必须从**上方**逼近。 |
 | 0032 / 0033 / 0035 | 内置麦克风（DTS 的 `audio-routing` 要 `"DMICn" -> "MIC BIASx"` **和** `"DMICn" -> "MCLK"`）、采集前端收窄到 `S16_LE`、`DEC0 Volume` 限幅到 0 dB（UCM 把它当采集音量暴露，WirePlumber 100% 会映射到控件最大值 +40 dB）。 |
 | 0036 | `pinctrl: qcom: sc8180x` 标记坏掉的 PDC 双边沿 errata。 |
+| 0048 | `arm64: dts: qcom: sc8180x: describe the remaining apps_smmu context interrupts`。厂商 IORT（与固件自带 DT 的前 106 条逐条一致）记了 128 个 context 中断，而 `sc8180x.dtsi` 只写了前 106 个；EL1 下 QHEE 把 SMMU 模拟成 106 个 context bank 所以够用，**EL2（slbounce）下真实硬件 IDR1 报 127**，`arm_smmu_device_probe()` 直接拒绝 → 所有带 `iommus` 的设备永久 defer。补上缺的 21 个（`GIC_SPI 776..796`），EL1 由 arm-smmu 截断到 106 不受影响；EL2 overlay 那份**伪造**的 128 条表（把 context-fault 处理器注册到不属于任何 context bank 的 SPI 上）随之删掉。**通用缺陷，值得发上游**。 |
 
 ---
 
@@ -232,7 +233,7 @@ git grep -nE 'SYSTEM-CONFIG|maintainer/|sync-panel-dkms|make-(firmware|sensors-r
 
 另外：
 
-* 改了内核补丁集 → 确认 36 个补丁**编号连续**且 `linux-mibook-mainline/PKGBUILD`
+* 改了内核补丁集 → 确认 48 个补丁**编号连续**且 `linux-mibook-mainline/PKGBUILD`
   的 `_patches` glob 能匹配到它们；
 * 改了 `09_xiaomi_book_dtb` → 用假 `/boot` 验证 §6 里的三种情况；
 * bump 了 `pkgver`/`pkgrel` → 同步 `dkms.conf` 的 `PACKAGE_VERSION`（DKMS 包）与
