@@ -412,7 +412,7 @@ gpg --detach-sign --use-agent repo/zcc-aur.db.tar.gz
      产物就是 `out/qebspilaa64-stdpas.efi`）
      **fork 里的 `QEBSPIL_SETTLE_MS`（默认 5000）不能去掉**：`exit` 之后 slbounce 会立刻做
      Secure Launch，而 DSP 刚放出复位、handover 还没做完 —— 不等就会变成"同一份 dtb 有时能
-     attach、有时 `SMP2P … -19`"（设 0 即退回旧行为，`make … QEBSPIL_SETTLE_MS=2000` 可调小）。
+     attach、有时 `SMP2P … -19`"（设 0 即退回旧行为。**实测 2000 ms 不够**——ADSP 仍是 `SMP2P … -19`、不 attach；5000 ms 稳定，想省启动时间可试 3000）。
 3. 满足上面两条时，`09_xiaomi_book_dtb` 会自动多生成一条
    `Arch Linux (Xiaomi Book S 12.4, <kernel>, EL2 via slbounce)` 条目。
    **默认启动项仍然是 EL1 那条**，EL2 只是菜单里多出来的一个选项。
@@ -443,6 +443,18 @@ EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在�
 | 音量键 | ⚠️ SPMI 的 APID 写权限归固件（`disallowed SPMI write`），不影响启动 |
 | eMMC 时钟源 | ⚠️ 一条 `clk-rcg2: rcg didn't update its configuration` WARN（eMMC 工作正常） |
 | EL2 虚拟定时器 | ⚠️ 设备树缺第 5 个中断（hyp-virt），KVM 仍可用，只是非最优 |
+
+**推荐配置（更稳）**：**只留 ADSP**。打包的 EL2 dtb 三个 DSP 都开着，实测那种配置会在开机
+9–14 s 静默复位；把 SLPI/CDSP 关掉、让 `qebspil` 只启 ADSP，则可以稳定跑到 5 分钟以上：
+
+```sh
+cp /boot/dtb/linux-mibook-mainline/qcom/sc8180x-xiaomi-book-12.4-el2.dtb ~/el2-adsp.dtb
+fdtput -t s ~/el2-adsp.dtb /soc@0/remoteproc@2400000 status disabled
+fdtput -t s ~/el2-adsp.dtb /soc@0/remoteproc@8300000 status disabled
+sudo cp ~/el2-adsp.dtb /boot/dtb/linux-mibook-mainline/qcom/sc8180x-xiaomi-book-12.4-el2-adsp.dtb
+```
+
+然后在 GRUB 条目里把 `devicetree` 指向它。（将来内核包可以直接提供一个 ADSP-only 的 EL2 dtb。）
 
 **为什么 DSP 必须"切换前"启动**：EL2 下 `PAS_AUTH_AND_RESET` 会返回成功却**不放复位**，而
 QDSP6SS 寄存器窗口被 XPU 挡住、**一读就卡死整机**（会僵到看门狗复位）。modem 是例外：内核
