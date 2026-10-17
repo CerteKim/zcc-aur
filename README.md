@@ -436,7 +436,7 @@ EBS 回调要趁 QHEE 还活着的时候跑，slbounce 的 Secure-Launch 是在�
 | 显示 / GPU / 面板 / 背光 | ✅ `msmdrmfb` + `adreno` + `panel-himax-hx83121a` 都正常 |
 | NVMe / eMMC / USB / 触摸板 / WiFi / 电池+充电 | ✅ |
 | 音频（ADSP） | ✅ 前提是先 `load qebspilaa64-stdpas.efi`（内核侧 attach 补丁已随内核包提供） |
-| 看门狗 | ⚠️ 必须让 systemd 喂它（本包提供的 `99-qcom-watchdog.conf`，`RuntimeWatchdogSec=30s`）。EL1 下是 QHEE 在喂；EL2 下没人喂就会**开机约 56 秒后静默复位**（无 panic、无关机日志） |
+| 看门狗 | ⚠️ 必须让 systemd 喂它（本包提供的 `99-qcom-watchdog.conf`，**`RuntimeWatchdogSec=10s`** → 每 5 秒 ping 一次）。EL1 下是 QHEE 在喂；EL2 下没人喂就会静默复位。硬件计数上限约 32 s，用 30 s 时仍观察到 EL2 开机 28–92 s 静默复位（无 panic、无关机日志），改 10 s 后同一配置稳定跑 400 s 以上 |
 | 传感器（SLPI） | ⛔ 它的电源域是 LCX+LMX，而 EFI 阶段没人能投 RPMh（qebspil 没有 RPMh 驱动），内核在 EL2 又启动不了它（PAS 只认证不放复位、QDSP6SS 寄存器碰不得）→ **EL2 下无解** |
 | CDSP | ✅ 同音频：靠 `qebspilaa64-stdpas.efi` 在切换前启动，内核 attach |
 | USB-C（pmic-glink）、LMH 热管理 | ⛔ 在 EL2 下无意义，EL2 设备树里已禁用 |

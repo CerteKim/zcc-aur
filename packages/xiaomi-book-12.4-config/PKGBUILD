@@ -32,7 +32,7 @@
 
 pkgname=xiaomi-book-12.4-config
 pkgver=1
-pkgrel=12
+pkgrel=13
 pkgdesc="Xiaomi Book S 12.4 (sc8180x): ALSA UCM profile, Bluetooth address fix, GRUB device tree entry, cover-internal udev rule, RA9530 pen policy"
 arch=('any')
 url="https://github.com/CerteKim/zcc-aur"
@@ -73,7 +73,7 @@ sha256sums=(
     '3bece361b2b0b62772d7eb3768c0cbe37372a2fd20498559dfcfc31079fd160b'
     '60228fe7ea4971b75c130987ae430f33b6a54c61cde25186a77b7bad124862f3'
     '4eef301b0ef2e38b7a35bb12115b5886a3a40badb5d10043b52709a6e9755a50'
-    '769dd32c2c7af874907adc3481973f927f43dd6e71d1802f5c9238e2c4108865'
+    '038a1cd7eb5c9d0385cffe06372c84cfd7d0085c21deb06427495c163afec84f'
 )
 
 package() {
@@ -112,7 +112,7 @@ package() {
     # systemd must feed the APSS watchdog when Linux runs in EL2 (Secure-Launch
     # / slbounce): QHEE, which does it in EL1, is gone there and the kernel's
     # boot-enabled ping only covers the window until userspace opens the device.
-    # Without this the machine resets itself ~56 s into an EL2 boot.
+    # Without this the machine resets itself silently at some point during an EL2 boot (28-92 s observed).
     install -Dm644 99-qcom-watchdog.conf \
         "$pkgdir/usr/lib/systemd/system.conf.d/99-qcom-watchdog.conf"
 }
